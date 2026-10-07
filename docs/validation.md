@@ -54,6 +54,12 @@ WebView and did not validate the proposed Core Python wrapper.
 - The follow-up Core event/RPC/lifecycle suite passed 97 targeted regressions;
   notification dispatch and veto refusal are source-tested, not native WebView QA
 
+The [final Core CI](https://github.com/try-auroraview/auroraview/actions/runs/37677003305)
+also ran required tests inside actual Blender 3.6.21: four collected, four passed,
+zero skipped. The final Python CI executed all 97 focused contract regressions.
+These host/source checks do not establish visible WebView rendering or native
+window lifecycle acceptance.
+
 The public CI checks unit behavior, style, sdist/wheel creation, source equality
 inside the wheel and lazy import without Blender/Core. It does not launch Blender.
 Mocked tests are not renderer or native lifecycle evidence.

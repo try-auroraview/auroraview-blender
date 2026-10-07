@@ -2,16 +2,16 @@
 
 The adapter requires [AuroraView Core PR #497](https://github.com/try-auroraview/auroraview/pull/497).
 
-- Public source commit: 3c51bbf6700af636c93458a301efe2cc905c624e
+- Public merged source commit: 0381061602ff2a326e3f541da24ad7756dea50a4
 - Base commit: eab9508013e6d68e0e1521648ff98e378e26658a
-- Host event contract commit: 436e2471 (adds asynchronous notification dispatch)
+- Initial event contract review: 436e2471 (adds asynchronous notification dispatch)
 - The prior ce33cc2 candidate supplies the original lifecycle/RPC changes but
   lacks host event dispatch and is no longer sufficient for optional WebViews
 
 No published Core version is currently declared compatible with this candidate.
 Core's source version is based on 0.5.11; the released 0.5.11 wheel does not
 contain this host contract. Packaging intentionally has no automatic Core dependency.
-Select and validate an explicit build of the proposed contract before attempting
+Select and validate an explicit build of the merged contract before attempting
 native use. This document is a source dependency pin, not an installable release.
 
 Native tool panels do not use Core and are independent of this dependency.

@@ -25,7 +25,7 @@ The real host probe did not import Core or construct a WebView. See [validation]
 
 ## Core dependency
 
-Optional WebView tools require the API contract in [AuroraView Core PR #497](https://github.com/try-auroraview/auroraview/pull/497), at [source commit 3c51bbf](https://github.com/try-auroraview/auroraview/commit/3c51bbf6700af636c93458a301efe2cc905c624e).
+Optional WebView tools require the merged API contract in [AuroraView Core PR #497](https://github.com/try-auroraview/auroraview/pull/497), at [source commit 0381061](https://github.com/try-auroraview/auroraview/commit/0381061602ff2a326e3f541da24ad7756dea50a4).
 
 **No released Core dependency version is declared compatible.** Its source version is based on 0.5.11; installing the released auroraview==0.5.11 wheel does not supply these changes. This dependency applies only to optional WebView tools. Native panels work without Core. See the [exact contract](docs/core-compatibility.md).
 
