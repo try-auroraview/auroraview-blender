@@ -2,11 +2,11 @@
 
 The adapter requires [AuroraView Core PR #497](https://github.com/try-auroraview/auroraview/pull/497).
 
-- Public source commit: ce33cc2b8f705830643102e5fe806c64996fd4ad
-- Prior source commit: 7bfb45376c4428c6d3f36fc9361eca436e379d97 (same source tree)
-- Base commit: 11b3a29ad95a46cb22aaa604614de16da16bfc22
-- Reviewed source tree: b3aee846455954892c7e3e6be98e6bd9936e8a5f
-- Original reviewed candidate: a8a9b5fe6c6d20025e600ca5153c6e7babf6dbc2
+- Public source commit: 3c51bbf6700af636c93458a301efe2cc905c624e
+- Base commit: eab9508013e6d68e0e1521648ff98e378e26658a
+- Host event contract commit: 436e2471 (adds asynchronous notification dispatch)
+- The prior ce33cc2 candidate supplies the original lifecycle/RPC changes but
+  lacks host event dispatch and is no longer sufficient for optional WebViews
 
 No published Core version is currently declared compatible with this candidate.
 Core's source version is based on 0.5.11; the released 0.5.11 wheel does not
@@ -24,6 +24,9 @@ Required behavior includes:
 
 - set_call_dispatcher(schedule_callback) defers bound host callbacks to the
   Blender main-thread queue without changing Core's RPC envelope
+- set_event_dispatcher(schedule_callback) schedules event notifications on that
+  queue and rejects synchronous closing-veto registrations. Close, disconnect,
+  dispatcher replacement and expired host sessions discard pending delivery
 - Bindings and dispatcher options survive Core's asynchronous native construction
 - request_close() requests closure and wait(0) reports completion without
   declaring success while native delivery or host cleanup remains pending

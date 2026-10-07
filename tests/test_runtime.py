@@ -61,6 +61,9 @@ class View:
     def set_call_dispatcher(self, dispatcher):
         self.dispatch = dispatcher
 
+    def set_event_dispatcher(self, dispatcher):
+        self.event_dispatch = dispatcher
+
     def bind_call(self, name, callback):
         self.methods[name] = callback
 
@@ -188,6 +191,24 @@ class SessionTests(unittest.TestCase):
 
         self.session._view_factory = None
         with patch.dict(sys.modules, {"auroraview": SimpleNamespace(WebView=OldCore)}):
+            with self.assertRaisesRegex(RuntimeError, "host lifecycle contract"):
+                self.session.open()
+        self.assertEqual(self.session.views, {})
+
+    @patch("auroraview_blender.runtime.sys.platform", "win32")
+    def test_rpc_only_core_rejected_before_construction(self):
+        class RpcOnlyCore:
+            def __init__(self, **options):
+                raise AssertionError("A Core without host event dispatch must not be constructed")
+
+            def set_call_dispatcher(self, dispatcher):
+                pass
+
+            def request_close(self):
+                pass
+
+        self.session._view_factory = None
+        with patch.dict(sys.modules, {"auroraview": SimpleNamespace(WebView=RpcOnlyCore)}):
             with self.assertRaisesRegex(RuntimeError, "host lifecycle contract"):
                 self.session.open()
         self.assertEqual(self.session.views, {})

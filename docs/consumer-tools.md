@@ -2,7 +2,7 @@
 
 `BlenderSession.open(..., configure=configure)` is the public pre-show hook for
 consumer commands and events. It receives the public Core WebView, on Blender's
-main thread, after the adapter installs its call dispatcher and `blender.context`
+main thread, after the adapter installs its call/event dispatchers and `blender.context`
 binding, and before `show(wait=False)` transfers native ownership. Register new
 methods and events here rather than after `open` returns.
 
@@ -82,10 +82,17 @@ def unregister():
 
 For a JavaScript-to-Python event, register `view.on(event_name, handler)` inside
 `configure`, retaining its returned connection ID if needed. Selective removal
-uses `view.disconnect(event_name, connection_id)`. The adapter's dispatcher
-covers `bind_call`/`bind_api`; event delivery uses Core's separate DCC dispatcher.
-Do not assume this hook changes event-thread guarantees or touch `bpy` from an
-unverified event callback. Use `bind_call` for host commands as shown above.
+uses `view.disconnect(event_name, connection_id)`. The adapter installs Core's
+call and event dispatchers on the same bounded Blender main-thread queue before
+configuration. Event notifications return immediately to the renderer; their
+handler return values are ignored. A rejected/stale queue refuses delivery.
+Synchronous `closing` veto callbacks are explicitly unsupported with this async
+dispatcher and registration raises, rather than silently ignoring a veto.
+Queued notifications, including `closed`, may be discarded during teardown.
+Own cleanup through the session and add-on lifecycle rather than relying on a
+final event. Long-running handlers must not block Blender's main thread.
+Use `on`/`register_callback` for this route; raw `signals.connect` callbacks
+execute directly and do not gain host dispatch guarantees.
 
 ## Ownership and repeated calls
 

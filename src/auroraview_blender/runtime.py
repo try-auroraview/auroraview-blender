@@ -196,7 +196,7 @@ class BlenderSession:
         """Open a view, configuring its public Core API before native show.
 
         ``configure(view)`` runs synchronously on Blender's main thread after
-        the call dispatcher and default binding are installed, before
+        the call/event dispatchers and default binding are installed, before
         ``show(wait=False)``. Use it to bind commands and events; do not show
         or close the view in this callback.
 
@@ -229,7 +229,8 @@ class BlenderSession:
             from auroraview import WebView
 
             if not all(
-                hasattr(WebView, method) for method in ("set_call_dispatcher", "request_close")
+                callable(getattr(WebView, method, None))
+                for method in ("set_call_dispatcher", "set_event_dispatcher", "request_close")
             ):
                 raise RuntimeError(
                     "Install an AuroraView Core build with the host lifecycle contract"
@@ -243,7 +244,9 @@ class BlenderSession:
         try:
             # Require the shared contract explicitly rather than monkeypatching
             # private Core fields or creating a second bridge in this package.
-            view.set_call_dispatcher(self.scheduler.dispatcher())
+            dispatcher = self.scheduler.dispatcher()
+            view.set_call_dispatcher(dispatcher)
+            view.set_event_dispatcher(dispatcher)
             view.bind_call("blender.context", self.context)
             if configure is not None:
                 configure(view)

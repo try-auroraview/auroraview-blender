@@ -25,7 +25,7 @@ The real host probe did not import Core or construct a WebView. See [validation]
 
 ## Core dependency
 
-Optional WebView tools require the API contract in [AuroraView Core PR #497](https://github.com/try-auroraview/auroraview/pull/497), at [source commit ce33cc2](https://github.com/try-auroraview/auroraview/commit/ce33cc2b8f705830643102e5fe806c64996fd4ad).
+Optional WebView tools require the API contract in [AuroraView Core PR #497](https://github.com/try-auroraview/auroraview/pull/497), at [source commit 3c51bbf](https://github.com/try-auroraview/auroraview/commit/3c51bbf6700af636c93458a301efe2cc905c624e).
 
 **No released Core dependency version is declared compatible.** Its source version is based on 0.5.11; installing the released auroraview==0.5.11 wheel does not supply these changes. This dependency applies only to optional WebView tools. Native panels work without Core. See the [exact contract](docs/core-compatibility.md).
 
@@ -44,7 +44,7 @@ auroraview_blender.register()
 auroraview_blender.unregister()
 ```
 
-The default RPC reads selection metadata. There is no arbitrary code-execution RPC, external listener or implicit dependency installation. Calls use one bounded Blender timer queue. File-load hooks discard pending work and expire old dispatchers before restarting; module reload disposes the prior registration. Failed unregister cleanup retains ownership for retry. Native-window cleanup during these flows still needs live WebView validation.
+The default RPC reads selection metadata. There is no arbitrary code-execution RPC, external listener or implicit dependency installation. Calls and event notifications use one bounded Blender timer queue. Synchronous closing-veto callbacks are rejected by the async event contract. File-load hooks discard pending work and expire old dispatchers before restarting; module reload disposes the prior registration. Failed unregister cleanup retains ownership for retry. Native-window cleanup during these flows still needs live WebView validation.
 
 Third-party add-ons can own a `BlenderSession` and pass `configure(view)` to
 `open` to bind public Core commands/events before show. See the

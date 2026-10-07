@@ -6,6 +6,8 @@
 - Build and verify a reproducible Blender 4.2+ extension ZIP without Core dependencies.
 - Expire old dispatchers across file loads and discard callbacks even if timer removal fails.
 - Retain registration resources when unregister fails so cleanup can retry.
+- Require Core host event dispatch and route notifications through the same
+  generation-bound main-thread queue as RPC; refuse synchronous closing vetoes.
 
 ## 0.1.0.dev0 — experimental source candidate
 
