@@ -21,6 +21,10 @@ class ConfigurableView(View):
         self.steps.append("dispatcher")
         super().set_call_dispatcher(dispatcher)
 
+    def set_event_dispatcher(self, dispatcher):
+        self.steps.append("event_dispatcher")
+        super().set_event_dispatcher(dispatcher)
+
     def bind_call(self, name, callback, *, allow_rebind=True):
         assert not self.alive, "Bindings must precede native ownership transfer"
         self.steps.append(name)
@@ -56,7 +60,8 @@ class ConfigurationTests(unittest.TestCase):
         def configure(view):
             self.assertIs(threading.current_thread(), threading.main_thread())
             self.assertTrue(callable(view.dispatch))
-            self.assertEqual(view.steps, ["dispatcher", "blender.context"])
+            self.assertIs(view.event_dispatch, view.dispatch)
+            self.assertEqual(view.steps, ["dispatcher", "event_dispatcher", "blender.context"])
             view.bind_call(
                 "org.example.inspector.selection", self.session.context, allow_rebind=False
             )
@@ -67,6 +72,7 @@ class ConfigurationTests(unittest.TestCase):
             view.steps,
             [
                 "dispatcher",
+                "event_dispatcher",
                 "blender.context",
                 "org.example.inspector.selection",
                 "org.example.inspector.ready",
@@ -88,6 +94,26 @@ class ConfigurationTests(unittest.TestCase):
         self.bpy.app.timers.tick()
         self.assertEqual(called[0]["selected_objects"], ["Cube"])
         self.assertTrue(called[0]["main_thread"])
+
+    def test_events_use_main_thread_queue_and_expire_on_file_load(self):
+        view = self.session.open()
+        called = []
+        worker = threading.Thread(
+            target=lambda: view.event_dispatch(lambda: called.append(self.session.context()))
+        )
+        worker.start()
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(called, [])
+        self.bpy.app.timers.tick()
+        self.assertTrue(called[0]["main_thread"])
+        view.event_dispatch(lambda: called.append("stale"))
+        self.session.stop()
+        self.session.start()
+        self.bpy.app.timers.tick()
+        self.assertEqual(len(called), 1)
+        with self.assertRaisesRegex(RuntimeError, "expired session"):
+            view.event_dispatch(lambda: called.append("stale"))
 
     def test_invalid_configure_rejected_before_construction_and_on_live_reuse(self):
         for invalid in (False, 42, "configure", object()):
@@ -124,7 +150,7 @@ class ConfigurationTests(unittest.TestCase):
         self.session.close("org.example.tool")
         third = self.session.open("org.example.tool")
         self.assertEqual(configured, [first, second])
-        self.assertEqual(third.steps, ["dispatcher", "blender.context", "show"])
+        self.assertEqual(third.steps, ["dispatcher", "event_dispatcher", "blender.context", "show"])
 
     def test_dead_view_replacement_configures_fresh_view(self):
         configured = []

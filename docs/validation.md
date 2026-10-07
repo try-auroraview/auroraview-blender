@@ -46,11 +46,13 @@ WebView and did not validate the proposed Core Python wrapper.
 
 ## Source checks
 
-- 53 host/Core-double, native-panel and packaging unit tests passed
+- 55 host/Core-double, native-panel and packaging unit tests passed
 - Ruff lint and formatting passed for the adapter and tests
 - The reviewed Core R4 candidate passed 224 targeted Python regressions,
   including eight independent failure reproductions
 - Independent review repeated six Core close/reentrancy barrier cases five times
+- The follow-up Core event/RPC/lifecycle suite passed 97 targeted regressions;
+  notification dispatch and veto refusal are source-tested, not native WebView QA
 
 The public CI checks unit behavior, style, sdist/wheel creation, source equality
 inside the wheel and lazy import without Blender/Core. It does not launch Blender.
