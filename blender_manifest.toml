@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+id = "auroraview_blender"
+# Blender requires a semantic version. The Python distribution remains
+# 0.1.0.dev0; this installable development candidate is not a stable release.
+version = "0.1.0"
+name = "AuroraView Blender"
+tagline = "Native Blender panels and host scheduling for AuroraView tools"
+maintainer = "AuroraView contributors"
+type = "add-on"
+website = "https://github.com/try-auroraview/auroraview-blender"
+blender_version_min = "4.2.0"
+license = ["SPDX:MIT"]
+# Core is deliberately not bundled or installed automatically. This manifest
+# makes no native WebView, platform certification, or marketplace release claim.

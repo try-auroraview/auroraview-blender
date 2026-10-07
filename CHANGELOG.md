@@ -1,5 +1,12 @@
 # Changelog
 
+## Native tool development
+
+- Add Blender-native selection/transform panels and public consumer panel registration.
+- Build and verify a reproducible Blender 4.2+ extension ZIP without Core dependencies.
+- Expire old dispatchers across file loads and discard callbacks even if timer removal fails.
+- Retain registration resources when unregister fails so cleanup can retry.
+
 ## 0.1.0.dev0 — experimental source candidate
 
 - Blender main-thread timer queue and bounded host dispatch

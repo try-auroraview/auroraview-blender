@@ -5,6 +5,8 @@ wire format and generic view lifecycle in AuroraView Core.
 
 - `src/auroraview_blender/runtime.py`: bounded main-thread queue and host session
 - `src/auroraview_blender/__init__.py`: add-on register/unregister and UI
+- `src/auroraview_blender/panels.py`: main-thread native tool panel registration
+- `blender_manifest.toml`, `tools/build_extension.py`: Blender extension packaging
 - `tests/`: host ownership tests with explicit fake transport
 - Run `python -m unittest discover -s tests -v` and `ruff check .`
 - Main-thread-only bpy access; workers may only enqueue callbacks

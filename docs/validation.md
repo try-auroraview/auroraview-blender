@@ -1,8 +1,29 @@
 # Validation and remaining gates
 
-The production adapter and original tests match independently reviewed source
-79425d579c127324b797113f6ffd985351c52569. Publication documentation and packaging
-checks do not change those runtime bytes. Original MIT notices are retained.
+The initial adapter import matched independently reviewed source
+79425d579c127324b797113f6ffd985351c52569. Later commits add consumer configuration,
+native panels, extension packaging and registration-generation cancellation.
+Historical host evidence below applies to its original candidate. Original MIT
+notices are retained.
+
+## Native tools and extension validation
+
+On 2026-10-08, Blender 4.2.3 LTS on Windows accepted the generated extension ZIP
+through its official `extension validate` command. An isolated real GUI then
+installed and enabled that ZIP through Blender's extension operator. Thirteen
+checks passed for extension namespace isolation, native selection/consumer panel
+registration, idempotent registration, unregister, module reload and an actual
+save/open file cycle. File load restarted the timer and rejected the prior
+generation's dispatcher. Core was never imported and no WebView was created.
+
+The first GUI probe timed out waiting for UI acceptance. DCC-CUA 1.9.1 later
+opened the native sidebar after an explicit session-state refresh. The built-in
+selection/transform controls and independent consumer panel were visible, and
+the installed add-on verified its draw callback ran on the main thread. Native
+property-edit acceptance failed: background text delivery did not change the
+object name and foreground delivery returned `foreground_unavailable`. The
+readback reported the unchanged `Cube` and failed that check; no UI-edit pass is
+claimed. No generic computer-use provider was substituted.
 
 ## Actual Blender host check
 
@@ -25,7 +46,7 @@ WebView and did not validate the proposed Core Python wrapper.
 
 ## Source checks
 
-- 17 host/Core-double unit tests passed
+- 53 host/Core-double, native-panel and packaging unit tests passed
 - Ruff lint and formatting passed for the adapter and tests
 - The reviewed Core R4 candidate passed 224 targeted Python regressions,
   including eight independent failure reproductions
@@ -44,6 +65,6 @@ Mocked tests are not renderer or native lifecycle evidence.
 - Native callback/GC release and WebView helper-process termination
 - Exact supported host, OS, architecture and available Core build declaration
 
-Windows is a source candidate only. Linux/macOS WebView launch remains explicitly
-unavailable. Sidebar registration is not native panel embedding. Stable/native
-support claims must wait for these acceptance results.
+Windows WebView rendering is a source candidate only. Linux/macOS WebView launch
+remains explicitly unavailable. Native panels render Blender controls; they do
+not embed HTML. WebView support claims must wait for these acceptance results.

@@ -254,7 +254,7 @@ class AddonTests(unittest.TestCase):
             try:
                 addon.register()
                 addon.register()
-                self.assertEqual(len(bpy.classes), 2)
+                self.assertEqual(len(bpy.classes), 3)
                 self.assertEqual(len(bpy.app.handlers.load_pre), 1)
                 self.assertEqual(len(bpy.app.handlers.load_post), 1)
                 self.assertEqual(len(bpy.app.timers.registered), 1)
