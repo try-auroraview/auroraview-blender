@@ -88,15 +88,17 @@ class BlenderScheduler:
 
     def stop(self) -> None:
         require_main_thread()
+        detached = []
         with self._lock:
             self._running = False
             if self._bpy.app.timers.is_registered(self._callback):
                 self._bpy.app.timers.unregister(self._callback)
             while True:
                 try:
-                    self._queue.get_nowait()
+                    detached.append(self._queue.get_nowait())
                 except queue.Empty:
                     break
+        detached.clear()  # Callable finalizers may reenter the scheduler.
 
 
 def capabilities(platform: str | None = None) -> dict[str, Any]:
@@ -153,8 +155,30 @@ class BlenderSession:
             "selected_objects": [obj.name for obj in self.bpy.context.selected_objects],
         }
 
-    def open(self, view_id: str = "main", **options: Any) -> Any:
+    def open(
+        self,
+        view_id: str = "main",
+        *,
+        configure: Callable[[Any], None] | None = None,
+        **options: Any,
+    ) -> Any:
+        """Open a view, configuring its public Core API before native show.
+
+        ``configure(view)`` runs synchronously on Blender's main thread after
+        the call dispatcher and default binding are installed, before
+        ``show(wait=False)``. Use it to bind commands and events; do not show
+        or close the view in this callback.
+
+        A live ``view_id`` is returned unchanged: neither ``configure`` nor
+        new options are applied. After close (or a dead view), a fresh view is
+        created; supply ``configure`` again to register its bindings. The
+        callback is not stored by the session. On failure the new view is
+        closed; if close itself fails, it is retained for ``close``/``stop``
+        to retry. The already-started session and other views remain owned.
+        """
         require_main_thread()
+        if configure is not None and not callable(configure):
+            raise TypeError("configure must be callable or None")
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", view_id):
             raise ValueError(
                 "view_id must contain 1–64 letters, digits, dots, dashes or underscores"
@@ -190,9 +214,16 @@ class BlenderSession:
             # private Core fields or creating a second bridge in this package.
             view.set_call_dispatcher(self.scheduler.submit)
             view.bind_call("blender.context", self.context)
+            if configure is not None:
+                configure(view)
             view.show(wait=False)
         except BaseException:
-            view.close()
+            try:
+                view.request_close()
+            except BaseException:
+                # Keep ownership when Core reports incomplete close delivery.
+                self.views[view_id] = view
+                raise
             raise
         self.views[view_id] = view
         return view
