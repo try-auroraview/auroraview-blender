@@ -3,6 +3,7 @@
 import atexit
 import logging
 
+from .panels import NativePanelRegistry, draw_selection_status
 from .runtime import BlenderScheduler, BlenderSession, capabilities
 
 logger = logging.getLogger(__name__)
@@ -22,22 +23,52 @@ bl_info = {
     "category": "3D View",
 }
 
-__all__ = ["BlenderScheduler", "BlenderSession", "capabilities", "register", "unregister"]
+__all__ = [
+    "BlenderScheduler",
+    "BlenderSession",
+    "capabilities",
+    "register",
+    "unregister",
+    "register_panel",
+    "unregister_panel",
+]
 
 _session = None
 _classes = []
 _handlers = []
 _exit_callback = None
+_panels = None
+_registered = False
+
+
+def register_panel(panel_id, title, draw, *, category="AuroraView"):
+    """Register a native sidebar tool; draw receives (layout, context) on main."""
+    from .runtime import require_main_thread
+
+    require_main_thread()
+    if not _registered:
+        raise RuntimeError("Register AuroraView Blender before registering a panel")
+    return _panels.register(panel_id, title, draw, category=category)
+
+
+def unregister_panel(panel_id):
+    """Remove an owned native panel, retaining ownership if Blender rejects removal."""
+    from .runtime import require_main_thread
+
+    require_main_thread()
+    return _panels.unregister(panel_id) if _panels is not None else False
 
 
 def register():
     """Register host UI and one timer. Repeated registration is harmless."""
-    global _session, _classes, _handlers, _exit_callback
+    global _session, _classes, _handlers, _exit_callback, _panels, _registered
     from .runtime import require_main_thread
 
     require_main_thread()
-    if _session is not None:
+    if _registered:
         return
+    if _session is not None:
+        unregister()  # Retry any incomplete cleanup before creating new resources.
     import bpy
 
     session = BlenderSession(bpy)
@@ -64,7 +95,7 @@ def register():
 
         def draw(self, context):
             report = capabilities()
-            self.layout.label(text="Floating WebView tools")
+            self.layout.label(text="Web tools (experimental)")
             if not report["window_route_available"]:
                 self.layout.label(text="WebView route not yet supported", icon="INFO")
             row = self.layout.row()
@@ -88,32 +119,33 @@ def register():
             # receives close intent before the host timer is touched.
             logger.exception("AuroraView Blender cleanup during interpreter exit failed")
 
-    classes = [AURORAVIEW_OT_open, AURORAVIEW_PT_tools]
-    registered = []
+    _session = session
+    _panels = NativePanelRegistry(bpy)
+    _classes, _handlers = [], []
     try:
         session.start()
-        for cls in classes:
+        for cls in [AURORAVIEW_OT_open, AURORAVIEW_PT_tools]:
             bpy.utils.register_class(cls)
-            registered.append(cls)
+            _classes.append(cls)
+        _panels.register("AURORAVIEW_PT_selection", "Selection", draw_selection_status)
         bpy.app.handlers.load_pre.append(on_load_pre)
+        _handlers.append((bpy.app.handlers.load_pre, on_load_pre))
         bpy.app.handlers.load_post.append(on_load_post)
+        _handlers.append((bpy.app.handlers.load_post, on_load_post))
     except BaseException:
-        for cls in reversed(registered):
-            bpy.utils.unregister_class(cls)
-        session.stop()
+        try:
+            unregister()
+        except Exception:
+            logger.exception("AuroraView Blender registration rollback needs retry")
         raise
-    _session, _classes = session, classes
-    _handlers = [
-        (bpy.app.handlers.load_pre, on_load_pre),
-        (bpy.app.handlers.load_post, on_load_post),
-    ]
+    _registered = True
     _exit_callback = on_exit
     atexit.register(on_exit)
 
 
 def unregister():
     """Dispose host work before removing UI, without joining a native thread."""
-    global _session, _classes, _handlers, _exit_callback
+    global _session, _classes, _handlers, _exit_callback, _panels, _registered
     from .runtime import require_main_thread
 
     require_main_thread()
@@ -121,17 +153,35 @@ def unregister():
         return
     import bpy
 
-    session, classes, handlers = _session, _classes, _handlers
-    _classes, _handlers = [], []
+    _registered = False
+    errors = []
     try:
-        session.stop()
-        _session = None
-        if _exit_callback is not None:
-            atexit.unregister(_exit_callback)
-            _exit_callback = None
-    finally:
-        for collection, handler in handlers:
+        _session.stop()
+    except Exception as exc:
+        errors.append(exc)
+    for collection, handler in list(_handlers):
+        try:
             if handler in collection:
                 collection.remove(handler)
-        for cls in reversed(classes):
+            _handlers.remove((collection, handler))
+        except Exception as exc:
+            errors.append(exc)
+    if _panels is not None:
+        try:
+            _panels.clear()
+        except Exception as exc:
+            errors.append(exc)
+    for cls in reversed(list(_classes)):
+        try:
             bpy.utils.unregister_class(cls)
+            _classes.remove(cls)
+        except Exception as exc:
+            errors.append(exc)
+    if errors:
+        raise RuntimeError(
+            "AuroraView Blender cleanup is incomplete; retry unregister()"
+        ) from errors[0]
+    _session, _panels = None, None
+    if _exit_callback is not None:
+        atexit.unregister(_exit_callback)
+        _exit_callback = None

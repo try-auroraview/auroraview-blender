@@ -34,6 +34,7 @@ class BlenderScheduler:
         self._queue: queue.Queue[Callable[[], None]] = queue.Queue(maxsize=1024)
         self._lock = threading.Lock()
         self._running = False
+        self._generation = 0
         self._callback = self._tick
         self.last_error: str | None = None
 
@@ -55,14 +56,33 @@ class BlenderScheduler:
             self._bpy.app.timers.register(
                 self._callback, first_interval=self._interval, persistent=False
             )
+            self._generation += 1
             self._running = True
 
     def submit(self, callback: Callable[[], None]) -> None:
+        self._submit(callback)
+
+    def dispatcher(self) -> Callable[[Callable[[], None]], None]:
+        """Bind a Core dispatcher to this registration, never a later file/session."""
+        require_main_thread()
+        with self._lock:
+            if not self._running:
+                raise RuntimeError("Blender session is closed")
+            generation = self._generation
+
+        def dispatch(callback: Callable[[], None]) -> None:
+            self._submit(callback, generation)
+
+        return dispatch
+
+    def _submit(self, callback: Callable[[], None], generation: int | None = None) -> None:
         if not callable(callback):
             raise TypeError("callback must be callable")
         with self._lock:
             if not self._running:
                 raise RuntimeError("Blender session is closed")
+            if generation is not None and generation != self._generation:
+                raise RuntimeError("Blender dispatcher belongs to an expired session")
             try:
                 self._queue.put_nowait(callback)
             except queue.Full as exc:
@@ -89,16 +109,20 @@ class BlenderScheduler:
     def stop(self) -> None:
         require_main_thread()
         detached = []
-        with self._lock:
-            self._running = False
-            if self._bpy.app.timers.is_registered(self._callback):
-                self._bpy.app.timers.unregister(self._callback)
-            while True:
+        try:
+            with self._lock:
+                self._running = False
                 try:
-                    detached.append(self._queue.get_nowait())
-                except queue.Empty:
-                    break
-        detached.clear()  # Callable finalizers may reenter the scheduler.
+                    if self._bpy.app.timers.is_registered(self._callback):
+                        self._bpy.app.timers.unregister(self._callback)
+                finally:
+                    while True:
+                        try:
+                            detached.append(self._queue.get_nowait())
+                        except queue.Empty:
+                            break
+        finally:
+            detached.clear()  # Callable finalizers may reenter the scheduler.
 
 
 def capabilities(platform: str | None = None) -> dict[str, Any]:
@@ -109,6 +133,8 @@ def capabilities(platform: str | None = None) -> dict[str, Any]:
         "host": "blender",
         "platform": platform,
         "main_thread_dispatch": True,
+        "native_tools_panel": True,
+        "native_tools_require_core": False,
         "native_panel_embedding": False,
         "window_mode": "floating",
         "window_route_available": supported,
@@ -144,6 +170,11 @@ class BlenderSession:
         self._view_factory = view_factory
 
     def start(self) -> None:
+        require_main_thread()
+        if not self.scheduler.running and self.views:
+            # A failed close may retain a live view bound to the old generation.
+            # Complete that cleanup before any new host work can be accepted.
+            self.stop()
         self.scheduler.start()
 
     def context(self) -> dict[str, Any]:
@@ -212,7 +243,7 @@ class BlenderSession:
         try:
             # Require the shared contract explicitly rather than monkeypatching
             # private Core fields or creating a second bridge in this package.
-            view.set_call_dispatcher(self.scheduler.submit)
+            view.set_call_dispatcher(self.scheduler.dispatcher())
             view.bind_call("blender.context", self.context)
             if configure is not None:
                 configure(view)
