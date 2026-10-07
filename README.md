@@ -6,8 +6,8 @@ The adapter owns Blender's main-thread queue, sidebar launcher, operator registr
 
 ## Verified scope
 
-- **Actual Blender 4.3.2 / CPython 3.13.5 on Linux:** 21 addon-host checks passed, including worker-to-main-thread dispatch, registration, one disable/re-enable cycle and cleanup; Blender exited normally with code 0
-- **Host unit tests:** 17 passed using host/Core doubles
+- **Baseline actual Blender 4.3.2 / CPython 3.13.5 on Linux:** 21 addon-host checks passed, including worker-to-main-thread dispatch, registration, one disable/re-enable cycle and cleanup; Blender exited normally with code 0. The consumer-hook follow-up has not been rerun in Blender
+- **Source unit tests:** 30 passed (the original 17 plus 13 configuration/finalizer checks), using explicit host/Core doubles
 - **Native WebView, JS/Python RPC and window lifecycle:** not tested in a real host
 - **Windows floating-window route:** source candidate; native GUI acceptance pending
 - **Linux/macOS WebView route:** explicitly unavailable; the sidebar button stays disabled
@@ -37,6 +37,12 @@ auroraview_blender.unregister()
 ```
 
 The default RPC reads selection metadata. There is no arbitrary code-execution RPC, external listener or implicit dependency installation. Calls use one bounded Blender timer queue. File-load hooks stop the old session and start a fresh queue; module reload disposes the prior registration. Native-window cleanup during these flows still needs live WebView validation.
+
+Third-party add-ons can own a `BlenderSession` and pass `configure(view)` to
+`open` to bind public Core commands/events before show. See the
+[consumer example and ownership rules](docs/consumer-tools.md). The hook and
+reentrant-finalizer cleanup have source-only tests; they add no native support
+claim and do not enable the separate GTK runtime.
 
 ## Validation commands
 
