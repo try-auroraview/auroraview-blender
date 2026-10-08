@@ -298,6 +298,32 @@ class NativeSurfaceTests(unittest.TestCase):
             system.ui_scale = value
             self.assertEqual(self.manager._ui_scale(), 1.0)
 
+    def test_input_diagnostics_are_bounded_and_never_retain_committed_text(self):
+        surface_id = self.open()
+        window_id = self.host.context.window.as_pointer()
+        self.manager.handle_event(window_id, event(x=125, y=130, unicode="private text"))
+        info = self.manager.get_info(surface_id)
+        self.assertEqual(info["input_events"], 1)
+        self.assertEqual(
+            info["last_input"],
+            {
+                "type": "LEFTMOUSE",
+                "value": "PRESS",
+                "inside": True,
+                "x": 25.0,
+                "y": 49.0,
+                "handled": True,
+            },
+        )
+        info["last_input"]["type"] = "external mutation"
+        self.assertEqual(self.manager.get_info(surface_id)["last_input"]["type"], "LEFTMOUSE")
+        self.manager.handle_event(window_id, event("LEFTMOUSE", "RELEASE", x=0, y=0))
+        info = self.manager.get_info(surface_id)
+        self.assertEqual(info["input_events"], 2)
+        self.assertFalse(info["last_input"]["inside"])
+        self.assertNotIn("private text", str(info))
+        self.assertEqual(len(info["last_input"]), 6)
+
     def test_draw_callback_is_scoped_to_exact_window_area_region_and_space(self):
         self.open()
         with patch.object(self.manager, "_draw_surface") as draw:

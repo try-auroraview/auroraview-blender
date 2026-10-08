@@ -68,6 +68,8 @@ class _Surface:
     texture: Any = None
     uploaded_sequence: int = -1
     input_state: InputState = field(default_factory=InputState)
+    input_events: int = 0
+    last_input: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -126,6 +128,8 @@ class NativeSurfaceManager:
             "sequence": surface.sequence,
             "frame_count": surface.frame_count,
             "uploaded_sequence": surface.uploaded_sequence,
+            "input_events": surface.input_events,
+            "last_input": None if surface.last_input is None else dict(surface.last_input),
             "error": surface.error,
         }
 
@@ -460,6 +464,16 @@ class NativeSurfaceManager:
             x = (mx - region.x) * surface.width / max(1, region.width)
             y = (region.height - 1 - (my - region.y)) * surface.height / max(1, region.height)
             events, handled = translate(event, surface.input_state, inside=inside, x=x, y=y)
+            surface.input_events += 1
+            # Keep one bounded event summary, never committed text or Unicode input.
+            surface.last_input = {
+                "type": str(getattr(event, "type", ""))[:32],
+                "value": str(getattr(event, "value", ""))[:16],
+                "inside": inside,
+                "x": x,
+                "y": y,
+                "handled": handled,
+            }
             if self._client is not None:
                 for item in events:
                     try:
@@ -487,6 +501,8 @@ class NativeSurfaceManager:
             "frame_count": surface.frame_count,
             "ui_scale": surface.ui_scale,
             "uploaded_sequence": surface.uploaded_sequence,
+            "input_events": surface.input_events,
+            "last_input": None if surface.last_input is None else dict(surface.last_input),
             "error": surface.error,
         }
         try:
