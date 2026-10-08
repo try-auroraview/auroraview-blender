@@ -224,7 +224,16 @@ class NativeSurfaceManager:
         self._surfaces[surface_id] = surface
         try:
             if self._client is None:
-                self._client = self._factory()
+                try:
+                    self._client = self._factory()
+                except Exception as exc:
+                    # A failed startup can still own a process tree whose
+                    # bounded cleanup needs another host tick. The optional
+                    # client transfers that owner on its public error object.
+                    retained = getattr(exc, "renderer", None)
+                    if retained is not None and not retained.closed:
+                        self._closing.append(retained)
+                    raise
             self._client.create(
                 surface_id, surface.generation, width=width, height=height, html=html, url=url
             )

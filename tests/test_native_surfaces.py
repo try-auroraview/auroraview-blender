@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from auroraview_blender import surfaces
+from auroraview_blender.docking import DockSession
 from auroraview_blender.surfaces import NativeSurfaceManager, operator_classes, surface_capabilities
 
 
@@ -184,6 +185,65 @@ class NativeSurfaceTests(unittest.TestCase):
         self.assertTrue(self.manager.needs_tick)
         self.assertFalse(self.manager.tick())
         self.assertEqual(self.renderer.polls, 1)
+
+    def test_failed_constructor_retains_cleanup_owner_until_a_later_tick(self):
+        error = RuntimeError("startup failed with cleanup pending")
+        error.renderer = self.renderer
+        self.manager._factory = Mock(side_effect=error)
+        polls = 0
+
+        def poll():
+            nonlocal polls
+            polls += 1
+            self.renderer.closed = polls == 2
+            return []
+
+        self.renderer.poll = Mock(side_effect=poll)
+        with self.assertRaisesRegex(RuntimeError, "startup failed"):
+            self.open()
+        self.assertEqual(self.host.context.area.type, "VIEW_3D")
+        self.assertFalse(self.manager.surfaces)
+        self.assertIsNone(self.manager.renderer)
+        self.assertTrue(self.manager.needs_tick)
+        self.renderer.shutdown.assert_not_called()
+        self.assertTrue(self.manager.tick())
+        self.assertFalse(self.renderer.closed)
+        self.assertFalse(self.manager.tick())
+        self.assertTrue(self.renderer.closed)
+
+    def test_failed_constructor_cleanup_keeps_existing_scheduler_pump_for_retry(self):
+        error = RuntimeError("startup failed with cleanup pending")
+        error.renderer = self.renderer
+        factory = Mock(side_effect=error)
+        scheduler = Mock(running=True)
+        session = DockSession(self.host.bpy, scheduler, renderer_factory=factory)
+        self.renderer.terminate.side_effect = TimeoutError("owned cleanup pending")
+        backend = Mock()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "cleanup needs retry"):
+                session.open(self.host.context, split=False, html="<input>", backend=backend)
+            retained = session.manager
+            self.assertIsNotNone(retained)
+            self.assertFalse(retained.surfaces)
+            self.assertTrue(retained.needs_tick)
+            scheduler.add_pump.assert_called_once_with(session.tick)
+            scheduler.remove_pump.assert_not_called()
+            self.assertFalse(self.renderer.closed)
+
+            def poll():
+                self.renderer.closed = True
+                return []
+
+            self.renderer.poll = Mock(side_effect=poll)
+            session.tick()
+            self.assertFalse(retained.needs_tick)
+            self.assertIsNone(session.manager)
+            scheduler.remove_pump.assert_called_once_with(session.tick)
+            backend.close.assert_not_called()
+            backend.stop.assert_not_called()
+        finally:
+            self.renderer.closed = True
+            session.stop()
 
     def test_multiple_areas_and_windows_share_process_and_one_modal_per_window(self):
         first = self.open()
