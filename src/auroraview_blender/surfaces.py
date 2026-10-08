@@ -44,8 +44,8 @@ def surface_capabilities(
     }
 
 
-def _size(region: Any) -> tuple[int, int]:
-    width, height = max(1, region.width), max(1, region.height)
+def _size(region: Any, ui_scale: float = 1.0) -> tuple[int, int]:
+    width, height = max(1, region.width / ui_scale), max(1, region.height / ui_scale)
     scale = min(
         1, MAX_DIMENSION / width, MAX_DIMENSION / height, math.sqrt(MAX_PIXELS / (width * height))
     )
@@ -60,6 +60,7 @@ class _Surface:
     previous_type: str
     width: int
     height: int
+    ui_scale: float = 1.0
     resize_revision: int = 0
     sequence: int = -1
     frame_count: int = 0
@@ -121,6 +122,7 @@ class NativeSurfaceManager:
             else {"x": region.x, "y": region.y, "width": region.width, "height": region.height},
             "width": surface.width,
             "height": surface.height,
+            "ui_scale": surface.ui_scale,
             "sequence": surface.sequence,
             "frame_count": surface.frame_count,
             "uploaded_sequence": surface.uploaded_sequence,
@@ -137,6 +139,13 @@ class NativeSurfaceManager:
                 self._on_message(message)
             except Exception as exc:
                 self._error(exc)
+
+    def _ui_scale(self) -> float:
+        try:
+            scale = float(self.bpy.context.preferences.system.ui_scale)
+        except (AttributeError, TypeError, ValueError, ReferenceError):
+            return 1.0
+        return scale if math.isfinite(scale) and scale > 0 else 1.0
 
     def _lookup(self, surface: _Surface) -> tuple[Any, Any, Any] | None:
         window_id, area_id, region_id, space_id = surface.pointers
@@ -191,7 +200,8 @@ class NativeSurfaceManager:
             raise RuntimeError("Image editor has no WINDOW region")
         self._generation += 1
         surface_id = uuid4().hex
-        width, height = _size(region)
+        ui_scale = self._ui_scale()
+        width, height = _size(region, ui_scale)
         surface = _Surface(
             surface_id,
             self._generation,
@@ -204,6 +214,7 @@ class NativeSurfaceManager:
             previous_type,
             width,
             height,
+            ui_scale=ui_scale,
         )
         self._surfaces[surface_id] = surface
         try:
@@ -283,7 +294,7 @@ class NativeSurfaceManager:
                     self._notify(message)
             if self._client is None or not self._client.alive:
                 self.last_error = self.last_error or "Offscreen renderer exited"
-                self._client = None
+                self._retire_client()
                 for surface_id, surface in tuple(self._surfaces.items()):
                     surface.error = self.last_error
                     self.close(surface_id)
@@ -294,7 +305,8 @@ class NativeSurfaceManager:
                 self.close(surface_id)
                 continue
             _, area, region = binding
-            size = _size(region)
+            surface.ui_scale = self._ui_scale()
+            size = _size(region, surface.ui_scale)
             if size != (surface.width, surface.height) and self._client is not None:
                 surface.width, surface.height = size
                 surface.resize_revision += 1
@@ -322,7 +334,8 @@ class NativeSurfaceManager:
                 client.terminate()
             except Exception as terminate_error:
                 self._error(terminate_error)
-        return client.alive
+                return True
+        return not client.closed
 
     def _detach_handler(self) -> None:
         if self._draw_handler is not None:
@@ -472,6 +485,7 @@ class NativeSurfaceManager:
             "generation": surface.generation,
             "sequence": surface.sequence,
             "frame_count": surface.frame_count,
+            "ui_scale": surface.ui_scale,
             "uploaded_sequence": surface.uploaded_sequence,
             "error": surface.error,
         }
@@ -519,6 +533,9 @@ class NativeSurfaceManager:
                     except Exception as exc:
                         self._error(exc)
                         remaining.append(client)
+                    else:
+                        if not client.closed:
+                            remaining.append(client)
                 self._closing = remaining
 
 

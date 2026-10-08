@@ -88,6 +88,7 @@ class Host:
 class Renderer:
     def __init__(self):
         self.alive = True
+        self.closed = False
         self.messages = []
         self.polls = 0
         self.stopping = False
@@ -102,6 +103,7 @@ class Renderer:
         self.polls += 1
         if self.stopping:
             self.alive = False
+            self.closed = True
         messages, self.messages = self.messages, []
         return messages
 
@@ -110,6 +112,7 @@ class Renderer:
 
     def _terminate(self):
         self.alive = False
+        self.closed = True
 
 
 def event(kind="LEFTMOUSE", value="PRESS", x=120, y=120, **kwargs):
@@ -269,6 +272,32 @@ class NativeSurfaceTests(unittest.TestCase):
         self.manager.tick()
         self.assertEqual(surface.sequence, 3)
 
+    def test_blender_ui_scale_sets_logical_viewport_and_input_mapping(self):
+        self.host.context.preferences = SimpleNamespace(system=SimpleNamespace(ui_scale=2.0))
+        surface_id = self.open()
+        surface = self.manager.surfaces[surface_id]
+        self.assertEqual((surface.width, surface.height), (50, 40))
+        self.assertEqual(self.manager.get_info(surface_id)["ui_scale"], 2.0)
+        window_id = self.host.context.window.as_pointer()
+        self.manager.handle_event(window_id, event(x=125, y=130))
+        message = self.renderer.input.call_args.args[2]
+        self.assertEqual((message["x"], message["y"]), (12.5, 24.5))
+        self.host.context.preferences.system.ui_scale = 1.0
+        self.manager.tick()
+        self.assertEqual((surface.width, surface.height, surface.resize_revision), (100, 80, 1))
+        self.assertEqual(self.manager.get_info(surface_id)["ui_scale"], 1.0)
+        self.renderer.resize.assert_called_once_with(
+            surface_id, surface.generation, width=100, height=80
+        )
+
+    def test_missing_and_invalid_ui_scale_fall_back_to_one(self):
+        self.assertEqual(self.manager._ui_scale(), 1.0)
+        system = SimpleNamespace(ui_scale=None)
+        self.host.context.preferences = SimpleNamespace(system=system)
+        for value in (None, "invalid", 0, -1, float("nan"), float("inf")):
+            system.ui_scale = value
+            self.assertEqual(self.manager._ui_scale(), 1.0)
+
     def test_draw_callback_is_scoped_to_exact_window_area_region_and_space(self):
         self.open()
         with patch.object(self.manager, "_draw_surface") as draw:
@@ -362,6 +391,43 @@ class NativeSurfaceTests(unittest.TestCase):
         self.assertFalse(self.manager._modal_windows)
         self.assertEqual(self.manager.last_error, "Offscreen renderer exited")
         self.host.bpy.types.SpaceImageEditor.draw_handler_remove.assert_called_once()
+
+    def test_dead_parent_is_retained_until_process_tree_cleanup_is_complete(self):
+        self.open()
+        self.renderer.alive = False
+        self.renderer.poll = Mock(return_value=[])
+        self.assertTrue(self.manager.tick())
+        self.assertFalse(self.manager.surfaces)
+        self.assertIsNone(self.manager.renderer)
+        self.assertEqual(self.manager._closing, [self.renderer])
+        self.renderer.shutdown.assert_called_once()
+        self.renderer.closed = True
+        self.assertFalse(self.manager.tick())
+
+    def test_failed_dead_parent_cleanup_retains_owner_and_retries_boundedly(self):
+        self.open()
+        self.renderer.alive = False
+        self.renderer.poll = Mock(side_effect=RuntimeError("descendant not reaped"))
+        self.renderer.terminate.side_effect = RuntimeError("Job cleanup failed")
+        with self.assertLogs("auroraview_blender.surfaces", level="WARNING"):
+            self.assertTrue(self.manager.tick())
+        self.assertEqual(self.manager._closing, [self.renderer])
+        self.renderer.terminate.assert_called_once()
+        self.renderer.terminate.side_effect = self.renderer._terminate
+        with self.assertLogs("auroraview_blender.surfaces", level="WARNING"):
+            self.assertFalse(self.manager.tick())
+        self.assertEqual(self.renderer.terminate.call_count, 2)
+        self.assertTrue(self.renderer.closed)
+        self.assertFalse(self.manager._closing)
+
+    def test_force_stop_retains_process_tree_until_closed_is_confirmed(self):
+        self.open()
+        self.renderer.terminate.side_effect = lambda: None
+        self.manager.stop(force=True)
+        self.assertTrue(self.manager.needs_tick)
+        self.assertEqual(self.manager._closing, [self.renderer])
+        self.assertFalse(self.manager.tick())
+        self.renderer.terminate.side_effect = self.renderer._terminate
 
     def test_handler_failure_retains_ownership_and_retries_on_tick(self):
         surface_id = self.open()
@@ -507,6 +573,7 @@ class SurfaceCapabilityTests(unittest.TestCase):
             self.assertLessEqual(max(result), surfaces.MAX_DIMENSION)
             self.assertLessEqual(result[0] * result[1], surfaces.MAX_PIXELS)
             self.assertGreaterEqual(min(result), 1)
+        self.assertEqual(surfaces._size(SimpleNamespace(width=7000, height=300), 2.0), (3500, 150))
         self.assertEqual(surfaces.QUAD_UVS, ((0, 1), (1, 1), (1, 0), (0, 0)))
 
 
