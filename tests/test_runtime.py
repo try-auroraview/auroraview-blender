@@ -45,7 +45,12 @@ def fake_bpy():
             handlers=SimpleNamespace(load_pre=[], load_post=[], persistent=lambda f: f),
         ),
         context=SimpleNamespace(selected_objects=[SimpleNamespace(name="Cube")]),
-        types=SimpleNamespace(Operator=type("Operator", (), {}), Panel=type("Panel", (), {})),
+        types=SimpleNamespace(
+            Operator=type("Operator", (), {}),
+            Panel=type("Panel", (), {}),
+            AddonPreferences=type("AddonPreferences", (), {}),
+        ),
+        props=SimpleNamespace(StringProperty=lambda **_: None),
         utils=SimpleNamespace(register_class=classes.append, unregister_class=classes.remove),
         classes=classes,
     )
@@ -257,14 +262,21 @@ class AddonTests(unittest.TestCase):
             self.assertEqual(bpy.app.handlers.load_pre, [])
             self.assertEqual(bpy.app.handlers.load_post, [])
 
-    def test_exit_callback_stops_host_resources(self):
+    def test_exit_callback_unregisters_all_owned_host_resources(self):
         bpy = fake_bpy()
         with patch.dict(sys.modules, {"bpy": bpy}):
             try:
                 addon.register()
+                session = addon._session
                 addon._exit_callback()
-                self.assertFalse(addon._session.scheduler.running)
+                self.assertFalse(session.scheduler.running)
                 self.assertEqual(len(bpy.app.timers.registered), 0)
+                self.assertIsNone(addon._session)
+                self.assertIsNone(addon._docking)
+                self.assertIsNone(addon._panels)
+                self.assertEqual(bpy.classes, [])
+                self.assertEqual(bpy.app.handlers.load_pre, [])
+                self.assertEqual(bpy.app.handlers.load_post, [])
             finally:
                 addon.unregister()
             self.assertIsNone(addon._exit_callback)
@@ -275,7 +287,7 @@ class AddonTests(unittest.TestCase):
             try:
                 addon.register()
                 addon.register()
-                self.assertEqual(len(bpy.classes), 3)
+                self.assertEqual(len(bpy.classes), 7)
                 self.assertEqual(len(bpy.app.handlers.load_pre), 1)
                 self.assertEqual(len(bpy.app.handlers.load_post), 1)
                 self.assertEqual(len(bpy.app.timers.registered), 1)

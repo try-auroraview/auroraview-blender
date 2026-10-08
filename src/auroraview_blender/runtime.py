@@ -37,6 +37,22 @@ class BlenderScheduler:
         self._generation = 0
         self._callback = self._tick
         self.last_error: str | None = None
+        self._pumps: list[Callable[[], None]] = []
+
+    def add_pump(self, callback: Callable[[], None]) -> None:
+        """Attach a host-owned, nonblocking pump to the existing main timer."""
+        require_main_thread()
+        if not callable(callback):
+            raise TypeError("pump must be callable")
+        if callback not in self._pumps:
+            if len(self._pumps) >= 8:
+                raise RuntimeError("Blender host pump limit reached")
+            self._pumps.append(callback)
+
+    def remove_pump(self, callback: Callable[[], None]) -> None:
+        require_main_thread()
+        if callback in self._pumps:
+            self._pumps.remove(callback)
 
     @property
     def running(self) -> bool:
@@ -102,6 +118,14 @@ class BlenderScheduler:
             except Exception as exc:
                 self.last_error = str(exc)
                 logger.exception("Blender callback failed")
+            if not self._running:
+                return None
+        for pump in tuple(self._pumps):
+            try:
+                pump()
+            except Exception as exc:
+                self.last_error = str(exc)
+                logger.exception("Blender host pump failed")
             if not self._running:
                 return None
         return self._interval

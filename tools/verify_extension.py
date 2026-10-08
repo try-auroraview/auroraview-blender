@@ -9,9 +9,11 @@ from pathlib import Path
 from build_extension import PACKAGE_ID, ROOT, extension_files, read_manifest
 
 
-def verify_extension(archive_path: Path, root: Path = ROOT) -> None:
+def verify_extension(
+    archive_path: Path, root: Path = ROOT, *, offscreen_wheel: Path | None = None
+) -> None:
     """Reject missing, changed, duplicate or unexpected archive entries."""
-    expected = extension_files(root)
+    expected = extension_files(root, offscreen_wheel=offscreen_wheel)
     with zipfile.ZipFile(archive_path) as archive:
         names = archive.namelist()
         if len(names) != len(set(names)):
@@ -31,10 +33,13 @@ def verify_extension(archive_path: Path, root: Path = ROOT) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path, nargs="?", help="Archive to verify")
+    parser.add_argument(
+        "--offscreen-wheel", type=Path, help="Verify against the local wheel selected at build time"
+    )
     args = parser.parse_args()
     manifest = read_manifest(ROOT)
     archive_path = args.archive or ROOT / "dist" / f"{PACKAGE_ID}-{manifest['version']}.zip"
-    verify_extension(archive_path)
+    verify_extension(archive_path, offscreen_wheel=args.offscreen_wheel)
     print("Extension root layout and source contents verified; native support is not certified")
 
 
