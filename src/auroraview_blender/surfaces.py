@@ -6,6 +6,7 @@ import logging
 import math
 import sys
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -362,10 +363,7 @@ class NativeSurfaceManager:
                 client.shutdown()
             except Exception as exc:
                 self._error(exc)
-                try:
-                    client.terminate()
-                except Exception as terminate_error:
-                    self._error(terminate_error)
+                # Poll or explicit final teardown owns the bounded force retry.
 
     def _draw(self) -> None:
         _main()
@@ -528,8 +526,11 @@ class NativeSurfaceManager:
                 self._detach_handler()
                 self._retire_client()
 
-    def stop(self, *, force: bool = False) -> None:
+    def stop(self, *, force: bool = False, timeout: float = 0.25) -> None:
         _main()
+        if not math.isfinite(timeout) or not 0 < timeout <= 3.0:
+            raise ValueError("Cleanup timeout must be between zero and three seconds")
+        deadline = time.monotonic() + timeout
         self._stopping = True
         try:
             for surface_id in tuple(self._surfaces):
@@ -544,8 +545,13 @@ class NativeSurfaceManager:
             if force:
                 remaining = []
                 for client in self._closing:
+                    if client.closed:
+                        continue
                     try:
-                        client.terminate()
+                        budget = deadline - time.monotonic()
+                        if budget <= 0:
+                            raise TimeoutError("Native renderer cleanup budget exhausted")
+                        client.terminate(timeout=budget)
                     except Exception as exc:
                         self._error(exc)
                         remaining.append(client)

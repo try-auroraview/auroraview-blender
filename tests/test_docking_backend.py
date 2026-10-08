@@ -95,6 +95,14 @@ class DockBackendTests(unittest.TestCase):
         self.assertTrue(future.cancelled())
         self.assertFalse(self.session._pending)
 
+    def test_explicit_final_timeout_reaches_only_owned_surface_manager(self):
+        backend = Mock()
+        self.bind(backend)
+        self.session.stop(timeout=3.0)
+        self.manager.stop.assert_called_once_with(force=True, timeout=3.0)
+        backend.close.assert_not_called()
+        backend.stop.assert_not_called()
+
     def test_last_area_close_releases_connections_and_existing_timer_pump(self):
         connection = Mock(dispose=Mock(return_value=True))
         backend = Mock(on=Mock(return_value=connection))

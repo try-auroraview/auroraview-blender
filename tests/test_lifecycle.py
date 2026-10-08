@@ -1,5 +1,6 @@
 """Registration epochs and retryable native host cleanup."""
 
+import atexit
 import sys
 import threading
 import unittest
@@ -147,6 +148,111 @@ class LifecycleTests(unittest.TestCase):
             finally:
                 addon.unregister()
             self.assertEqual(bpy.classes, [])
+
+    def test_exit_cleanup_failure_retains_native_class_for_public_retry(self):
+        bpy = fake_bpy()
+        with patch.dict(sys.modules, {"bpy": bpy}):
+            addon.register()
+            session, exit_callback = addon._session, addon._exit_callback
+            rejected = bpy.classes[0]
+            remove = bpy.utils.unregister_class
+
+            def unregister(cls):
+                if cls is rejected:
+                    raise RuntimeError("host busy")
+                remove(cls)
+
+            try:
+                with patch.object(bpy.utils, "unregister_class", unregister):
+                    with self.assertLogs("auroraview_blender", level="ERROR"):
+                        exit_callback()
+                self.assertIs(addon._session, session)
+                self.assertIs(addon._exit_callback, exit_callback)
+                self.assertFalse(session.scheduler.running)
+                self.assertEqual(bpy.classes, [rejected])
+                self.assertEqual(bpy.app.handlers.load_pre, [])
+                self.assertEqual(bpy.app.handlers.load_post, [])
+                exit_callback()
+                self.assertIsNone(addon._session)
+                self.assertIsNone(addon._exit_callback)
+                self.assertEqual(bpy.classes, [])
+            finally:
+                addon.unregister()
+
+    def test_interpreter_exit_cleanup_does_not_mutate_atexit_callbacks(self):
+        bpy = fake_bpy()
+        with patch.dict(sys.modules, {"bpy": bpy}):
+            addon.register()
+            exit_callback = addon._exit_callback
+            try:
+                with patch("auroraview_blender.atexit.unregister") as remove_callback:
+                    exit_callback(finalizing=True)
+                    remove_callback.assert_not_called()
+                self.assertIsNone(addon._session)
+                self.assertIsNone(addon._exit_callback)
+                self.assertFalse(addon._finalizing)
+                self.assertEqual(bpy.classes, [])
+            finally:
+                atexit.unregister(exit_callback)
+                addon.unregister()
+
+    def test_file_load_cleanup_failure_stops_old_generation_before_public_retry(self):
+        bpy = fake_bpy()
+        with patch.dict(sys.modules, {"bpy": bpy}):
+            addon.register()
+            docking, scheduler = addon._docking, addon._session.scheduler
+            old_dispatch = scheduler.dispatcher()
+            delivered = []
+            old_dispatch(lambda: delivered.append("old"))
+            retained = object()
+            docking.manager = retained
+            attempts = []
+
+            def stop(*, force):
+                self.assertTrue(force)
+                attempts.append(scheduler.running)
+                if len(attempts) == 1:
+                    raise RuntimeError("cleanup pending")
+                docking.manager = None
+
+            try:
+                with patch.object(docking, "stop", side_effect=stop):
+                    with self.assertRaisesRegex(RuntimeError, "cleanup pending"):
+                        bpy.app.handlers.load_pre[0](None)
+                    self.assertFalse(scheduler.running)
+                    self.assertEqual(scheduler.pending, 0)
+                    self.assertEqual(len(bpy.app.timers.registered), 0)
+                    self.assertIs(docking.manager, retained)
+                    bpy.app.handlers.load_post[0](None)
+                self.assertEqual(attempts, [True, False])
+                self.assertTrue(scheduler.running)
+                with self.assertRaisesRegex(RuntimeError, "expired"):
+                    old_dispatch(lambda: delivered.append("stale"))
+                bpy.app.timers.tick()
+                self.assertEqual(delivered, [])
+            finally:
+                docking.manager = None
+                addon.unregister()
+
+    def test_failed_file_load_retry_never_restarts_host_scheduler(self):
+        bpy = fake_bpy()
+        with patch.dict(sys.modules, {"bpy": bpy}):
+            addon.register()
+            docking, scheduler = addon._docking, addon._session.scheduler
+            retained = object()
+            docking.manager = retained
+            try:
+                with patch.object(docking, "stop", side_effect=RuntimeError("cleanup pending")):
+                    with self.assertRaisesRegex(RuntimeError, "cleanup pending"):
+                        bpy.app.handlers.load_pre[0](None)
+                    with self.assertRaisesRegex(RuntimeError, "cleanup pending"):
+                        bpy.app.handlers.load_post[0](None)
+                self.assertFalse(scheduler.running)
+                self.assertEqual(len(bpy.app.timers.registered), 0)
+                self.assertIs(docking.manager, retained)
+            finally:
+                docking.manager = None
+                addon.unregister()
 
 
 if __name__ == "__main__":

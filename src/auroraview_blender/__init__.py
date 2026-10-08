@@ -42,6 +42,7 @@ _exit_callback = None
 _panels = None
 _registered = False
 _docking = None
+_finalizing = False
 
 
 def open_editor(context=None, *, split=True, html=None, url=None, backend=None, events=()):
@@ -182,21 +183,27 @@ def register():
     @bpy.app.handlers.persistent
     def on_load_pre(_):
         # File load invalidates scene context and non-persistent timers.
-        docking.stop(force=True)
-        session.stop()
+        try:
+            docking.stop(force=True)
+        finally:
+            session.stop()
 
     @bpy.app.handlers.persistent
     def on_load_post(_):
+        docking.stop(force=True)  # Retry retained resources before a new generation.
         session.start()
 
-    def on_exit():
+    def on_exit(*, finalizing=False):
+        global _finalizing
+        previous, _finalizing = _finalizing, finalizing
         try:
-            docking.stop(force=True)
-            session.stop()
+            unregister()
         except Exception:
-            # Blender may already have disposed its Python UI types. Core
-            # receives close intent before the host timer is touched.
+            # Complete cleanup includes Python-defined RNA types and panels;
+            # failures retain their owners through the public retry contract.
             logger.exception("AuroraView Blender cleanup during interpreter exit failed")
+        finally:
+            _finalizing = previous
 
     _session = session
     _docking = docking
@@ -227,7 +234,7 @@ def register():
         raise
     _registered = True
     _exit_callback = on_exit
-    atexit.register(on_exit)
+    atexit.register(on_exit, finalizing=True)
 
 
 def unregister():
@@ -244,7 +251,7 @@ def unregister():
     errors = []
     if _docking is not None:
         try:
-            _docking.stop(force=True)
+            _docking.stop(force=True, timeout=3.0)
         except Exception as exc:
             errors.append(exc)
     try:
@@ -275,5 +282,7 @@ def unregister():
         ) from errors[0]
     _session, _panels, _docking = None, None, None
     if _exit_callback is not None:
-        atexit.unregister(_exit_callback)
+        # Mutating the callback stack from inside atexit is undefined in Python.
+        if not _finalizing:
+            atexit.unregister(_exit_callback)
         _exit_callback = None

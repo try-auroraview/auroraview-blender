@@ -34,6 +34,20 @@ opened = False
 
 def record():
     global opened
+    # Teardown must remain retryable even when register state or scene RNA is gone.
+    if args.evidence and args.evidence.with_suffix(".stop").exists():
+        report = {"pid": os.getpid(), "elapsed": time.monotonic() - started}
+        try:
+            addon.unregister()
+        except RuntimeError as exc:
+            report.update(cleanup_complete=False, cleanup_error=str(exc))
+            args.evidence.parent.mkdir(parents=True, exist_ok=True)
+            args.evidence.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            return 0.25
+        report["cleanup_complete"] = True
+        args.evidence.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        bpy.ops.wm.quit_blender()
+        return None
     context = bpy.context
     if not args.wait_for_open and not opened:
         window = context.window_manager.windows[0]
@@ -61,7 +75,9 @@ def record():
                     "window_pointer": window.as_pointer(),
                     "operators": None
                     if not hasattr(window, "modal_operators")
-                    else [operator.bl_idname for operator in window.modal_operators][:32],
+                    else [
+                        getattr(operator, "bl_idname", None) for operator in window.modal_operators
+                    ][:32],
                 }
                 for window in list(context.window_manager.windows)[:16]
             ],
@@ -73,11 +89,6 @@ def record():
             report["last_closed_info"] = manager.last_closed_info
         args.evidence.parent.mkdir(parents=True, exist_ok=True)
         args.evidence.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        # A task-owned marker requests cleanup; never close another Blender.
-        if args.evidence.with_suffix(".stop").exists():
-            addon.unregister()
-            bpy.ops.wm.quit_blender()
-            return None
     return 0.25
 
 

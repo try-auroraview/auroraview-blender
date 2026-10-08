@@ -219,7 +219,7 @@ class DockSession:
                     surface_id, surface.generation, "blender.scene.changed", snapshot
                 )
 
-    def stop(self, *, force=True):
+    def stop(self, *, force=True, timeout=0.25):
         require_main_thread()
         errors = []
         for connection in tuple(self._connections):
@@ -236,7 +236,7 @@ class DockSession:
             except Exception as exc:
                 errors.append(exc)
         if self.manager is not None:
-            self.manager.stop(force=force)
+            self.manager.stop(force=force, timeout=timeout)
             if force and self.manager.needs_tick:
                 errors.append(RuntimeError("Native renderer cleanup needs retry"))
             if errors or (force and (self._connections or self._pending)):

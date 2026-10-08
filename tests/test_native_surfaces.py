@@ -110,7 +110,7 @@ class Renderer:
     def _shutdown(self):
         self.stopping = True
 
-    def _terminate(self):
+    def _terminate(self, *, timeout=0.25):
         self.alive = False
         self.closed = True
 
@@ -448,7 +448,7 @@ class NativeSurfaceTests(unittest.TestCase):
 
     def test_force_stop_retains_process_tree_until_closed_is_confirmed(self):
         self.open()
-        self.renderer.terminate.side_effect = lambda: None
+        self.renderer.terminate.side_effect = lambda **kwargs: None
         self.manager.stop(force=True)
         self.assertTrue(self.manager.needs_tick)
         self.assertEqual(self.manager._closing, [self.renderer])
@@ -517,6 +517,32 @@ class NativeSurfaceTests(unittest.TestCase):
         self.renderer.terminate.assert_called_once()
         second_renderer.terminate.assert_called_once()
         self.assertFalse(self.manager.needs_tick)
+
+    def test_final_teardown_shares_one_deadline_and_retains_unreaped_clients(self):
+        first = self.open()
+        self.manager.close(first)
+        second_renderer = Renderer()
+        self.manager._factory = lambda: second_renderer
+        self.open()
+        with (
+            patch.object(surfaces.time, "monotonic", side_effect=[10.0, 10.5, 13.0]),
+            self.assertLogs("auroraview_blender.surfaces", level="WARNING"),
+        ):
+            self.manager.stop(force=True, timeout=3.0)
+        self.renderer.terminate.assert_called_once_with(timeout=2.5)
+        second_renderer.terminate.assert_not_called()
+        self.assertEqual(self.manager._closing, [second_renderer])
+        self.assertTrue(self.manager.needs_tick)
+        self.manager.stop(force=True, timeout=3.0)
+        self.assertFalse(self.manager.needs_tick)
+
+    def test_invalid_final_budget_does_not_release_surface_ownership(self):
+        surface_id = self.open()
+        for timeout in (0, -1, 3.1, float("inf"), float("nan")):
+            with self.assertRaises(ValueError):
+                self.manager.stop(force=True, timeout=timeout)
+        self.assertIn(surface_id, self.manager.surfaces)
+        self.renderer.shutdown.assert_not_called()
 
     def test_poll_failure_and_callback_failure_do_not_leave_owned_host_resources(self):
         surface_id = self.open()
