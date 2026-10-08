@@ -132,14 +132,13 @@ class DockSession:
         if manager is None:
             return
         try:
+            if len(self._pending) >= 32:
+                raise RuntimeError("Too many pending backend calls")
             call = self._backend.call if self._backend is not None else self.adapter.execute
             result = call(message["method"], message.get("params"))
             if callable(getattr(result, "done", None)) and callable(
                 getattr(result, "cancel", None)
             ):
-                if len(self._pending) >= 32:
-                    result.cancel()
-                    raise RuntimeError("Too many pending backend calls")
                 self._pending.append((message, result))
                 return
             if inspect.isawaitable(result):

@@ -95,6 +95,45 @@ class DockBackendTests(unittest.TestCase):
         self.assertTrue(future.cancelled())
         self.assertFalse(self.session._pending)
 
+    def test_full_request_budget_rejects_before_starting_uncancellable_work(self):
+        requests = [Future() for _ in range(33)]
+        for request in requests:
+            self.assertTrue(request.set_running_or_notify_cancel())
+        backend = Mock(call=Mock(side_effect=requests))
+        self.bind(backend)
+        for index in range(32):
+            self.session._message(dict(self.message, id=str(index)))
+        self.assertEqual(backend.call.call_count, 32)
+        self.renderer.call_result.assert_not_called()
+
+        self.session._message(dict(self.message, id="over-budget"))
+        self.assertEqual(backend.call.call_count, 32)
+        self.assertEqual(len(self.session._pending), 32)
+        self.assertTrue(requests[32].running())
+        self.renderer.call_result.assert_called_once_with(
+            "one",
+            1,
+            "over-budget",
+            False,
+            error={"name": "RuntimeError", "message": "Too many pending backend calls"},
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "cleanup needs retry"):
+            self.session.stop()
+        self.assertIs(self.session.manager, self.manager)
+        self.assertEqual([future for _, future in self.session._pending], requests[:32])
+        self.assertTrue(all(request.running() for request in requests[:32]))
+        backend.close.assert_not_called()
+        backend.stop.assert_not_called()
+
+        for request in requests[:32]:
+            request.set_result(None)
+        self.session.stop()
+        self.assertFalse(self.session._pending)
+        self.assertIsNone(self.session.manager)
+        backend.close.assert_not_called()
+        backend.stop.assert_not_called()
+
     def test_explicit_final_timeout_reaches_only_owned_surface_manager(self):
         backend = Mock()
         self.bind(backend)
