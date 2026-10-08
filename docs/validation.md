@@ -1,78 +1,98 @@
 # Validation and remaining gates
 
-The initial adapter import matched independently reviewed source
-79425d579c127324b797113f6ffd985351c52569. Later commits add consumer configuration,
-native panels, extension packaging and registration-generation cancellation.
-Historical host evidence below applies to its original candidate. Original MIT
-notices are retained.
+Evidence is scoped to the tested candidate, host and operation. Source CI, native
+rendering, input delivery and user acceptance are separate gates. The native Web
+route is experimental; it is not a released or user-accepted integration.
 
-## Native tools and extension validation
+## Native Web editor candidate
 
-On 2026-10-08, Blender 4.2.3 LTS on Windows accepted the generated extension ZIP
-through its official `extension validate` command. An isolated real GUI then
-installed and enabled that ZIP through Blender's extension operator. Thirteen
-checks passed for extension namespace isolation, native selection/consumer panel
-registration, idempotent registration, unregister, module reload and an actual
-save/open file cycle. File load restarted the timer and rejected the prior
-generation's dispatcher. Core was never imported and no WebView was created.
+On 2026-10-09, an isolated Windows x64 Blender 5.1.1 GUI with Python 3.13.9
+installed and enabled the final extension through Blender's extension operator.
+The independent `tests/blender_offscreen_probe.py` passed 36 actual-host checks:
+exact installed source and wheel bytes, two native areas with GPU frame uploads,
+resizing, independent area closure, final-area process reaping, fresh reopening,
+renderer cancellation/reopening, file loading with dispatcher invalidation,
+unregister/re-register, module reload and active host exit. All six owned renderer
+processes and the probe Blender exited; its externally retained exit code was 0.
+The probe and its recovery files used isolated temporary/configuration directories.
 
-The first GUI probe timed out waiting for UI acceptance. DCC-CUA 1.9.1 later
-opened the native sidebar after an explicit session-state refresh. The built-in
-selection/transform controls and independent consumer panel were visible, and
-the installed add-on verified its draw callback ran on the main thread. Native
-property-edit acceptance failed: background text delivery did not change the
-object name and foreground delivery returned `foreground_unavailable`. The
-readback reported the unchanged `Cube` and failed that check; no UI-edit pass is
-claimed. No generic computer-use provider was substituted.
+The final candidate uses the public persistent `bpy.app.handlers.exit_pre` hook
+on hosts that expose it, before Blender tears down native data. A following
+unrelated exit handler verified main-thread cleanup and empty add-on owners. It
+was not skipped by mutation of the live handler list. Earlier active-exit runs
+reported 55 native blocks (approximately 4 KiB), absent from a no-add-on baseline;
+the final early-cleanup run had no allocator warning or cleanup error in either
+stdout or stderr. Older hosts retain an `atexit` fallback. This evidence applies
+to the tested Windows host and candidate, not every supported sidebar host.
 
-## Actual Blender host check
+These probes run on Blender's main thread. They establish native region drawing,
+scene RPC dispatch and ownership behavior; they do not send keyboard or mouse
+input and do not establish human acceptance. A process disappearing by itself
+is insufficient evidence of clean exit.
 
-On 2026-10-05, a dedicated real Blender 4.3.2 GUI with CPython 3.13.5 passed all
-21 checks in tests/blender_gui_probe.py. Its SHA256 was
-f2164d77671d569e0a356d8c6165fd2af1e493f62d6e9935317821c9baaf04b6.
+DCC-CUA 1.9.4 captured the real native Web region, bound to Blender PID 113988 and
+HWND 21050114. Blender's UI scale was 2.5; the 1569 by 1878 pixel region mapped to a
+627 by 751 logical Web surface. A previous precisely bound instance (PID 110388,
+HWND 85469118) accepted a Web click: Cube became selected, the name field filled
+and the host scene revision advanced from 0 to 1. That screenshot preceded the
+high-DPI correction.
 
-The checks covered GUI mode, idempotent registration, actual bpy timer ownership,
-load-handler/operator/panel registration, a worker-submitted context query on
-the actual main thread, explicit Linux rejection, no Core import, unregistering
-the timer/panel/handlers, discarded queued work, a fresh re-enabled session and
-final cleanup. The visible sidebar showed its unsupported-platform warning and
-disabled WebView button. Blender exited normally with code 0, with no forced
-termination. All probe-owned windows were closed.
+A later input attempt lost foreground focus to the automation client. Blender
+received a deactivation event and the scene remained unchanged. Full keyboard,
+committed Unicode, focus, mouse, rename/transform/frame interaction and multiple
+native windows still require stable target-bound testing and user acceptance.
+IME candidate windows, clipboard and drag-and-drop are not certified. No generic
+computer-use provider was substituted.
 
-This probe did not import Core or create a native WebView. It establishes host
-registration and dispatch behavior only. A separate official Core 0.5.11 native
-module import passed using isolated official dependencies; that also created no
-WebView and did not validate the proposed Core Python wrapper.
+The runtime is currently Windows with Python 3.12 or newer. Blender 4.2's older
+Python can use the native sidebar, but cannot launch this Web route. Linux/macOS
+transport unit tests do not certify Linux/macOS Blender Web integration.
 
-## Source checks
+## Shared renderer and backend checks
 
-- 55 host/Core-double, native-panel and packaging unit tests passed
-- Ruff lint and formatting passed for the adapter and tests
-- The reviewed Core R4 candidate passed 224 targeted Python regressions,
-  including eight independent failure reproductions
-- Independent review repeated six Core close/reentrancy barrier cases five times
-- The follow-up Core event/RPC/lifecycle suite passed 97 targeted regressions;
-  notification dispatch and veto refusal are source-tested, not native WebView QA
+The renderer is the optional dependency-free `auroraview-offscreen` package. Its
+portable Electron runtime is acquired separately with publisher digest and size
+verification, a complete inventory and original licensing notices. Blender does
+not download it. The hidden renderer owns no native focus or floating overlay.
 
-The [final Core CI](https://github.com/try-auroraview/auroraview/actions/runs/37677003305)
-also ran required tests inside actual Blender 3.6.21: four collected, four passed,
-zero skipped. The final Python CI executed all 97 focused contract regressions.
-These host/source checks do not establish visible WebView rendering or native
-window lifecycle acceptance.
+Actual hidden-Electron probes exercised frame delivery, SDK bridge calls,
+resizing, keyboard/mouse forwarding, simultaneous isolated renderer owners,
+normal shutdown and parent-pipe EOF. Those checks establish renderer behavior,
+not delivery through Blender's modal event handler. A real Node output benchmark
+measured approximately 1.92 seconds versus 0.10 seconds for a 12 MiB frame plus
+control traffic with 10 ms polling after increasing the Windows pipe buffer.
+This is a transport measurement, not an end-to-end latency guarantee.
 
-The public CI checks unit behavior, style, sdist/wheel creation, source equality
-inside the wheel and lazy import without Blender/Core. It does not launch Blender.
-Mocked tests are not renderer or native lifecycle evidence.
+The public `BackendSession` contract and Blender's borrowed-backend integration
+are source-tested for structured results/errors, subscription disposal, late
+notifications, request cancellation, retries and ownership. The adapter does not
+start a DCC-MCP server or copy its private dispatch/registry implementation. Direct
+DCC-MCP Core 0.20.41 integration still needs public invocation and removable
+subscription APIs; an existing public client or host adapter supplies the port.
 
-## Native acceptance still required
+## Source and packaging CI
 
-- Real WebView creation, visible HTML and bridge readiness
-- JS-to-Python RPC executing on Blender's main thread and returning results/errors
-- Native close/reopen, two independent views, repeated and interrupted closure
-- Add-on disable/re-enable, module reload, file load and host exit with live views
-- Native callback/GC release and WebView helper-process termination
-- Exact supported host, OS, architecture and available Core build declaration
+The add-on CI tests Python 3.10 through 3.13, lint, sdist/wheel construction, source
+identity in the wheel and lazy import without Blender or Core. Explicit optional
+wheel packaging checks validate wheel identity, safe members, dependency and
+platform declarations, metadata, licensing and exact wheel bytes in the extension.
+These source checks do not launch Blender or verify visible input behavior.
 
-Windows WebView rendering is a source candidate only. Linux/macOS WebView launch
-remains explicitly unavailable. Native panels render Blender controls; they do
-not embed HTML. WebView support claims must wait for these acceptance results.
+Core's offscreen workflow separately runs Windows/Linux transport and wheel
+contracts, Node helper contracts and explicit backend/Bridge lifecycle regressions.
+The ordinary Core SDK, Python, Rust and DCC checks remain independent gates. A
+required failure or running job prevents merge of that exact head.
+
+## Historical native sidebar evidence
+
+On 2026-10-08, Blender 4.2.3 LTS validated and installed the source-only extension.
+Thirteen real-host checks covered namespace isolation, native selection/consumer
+panels, idempotent registration, unregister, module reload and a save/open cycle.
+The previous generation's dispatcher was rejected after file load. Core was not
+imported and no Web renderer was created. DCC-CUA 1.9.1 observed native panels;
+the attempted property edit left Cube unchanged and was recorded as a failure.
+
+On 2026-10-05, a dedicated Blender 4.3.2 GUI with CPython 3.13.5 passed 21 host
+registration/dispatch checks and exited normally with code 0. That probe also did
+not create a Web renderer. Native `Panel.draw` controls remain distinct from the
+actual HTML editor route described above.

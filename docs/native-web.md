@@ -82,5 +82,10 @@ clipboard and drag-and-drop are not certified.
 
 Closing releases textures, handlers, subscriptions and requests. Normal renderer
 shutdown is pumped asynchronously; explicit unregister/exit reaps only the owned
-process tree with a bounded OS wait. Cleanup failure retains ownership for retry.
-No unrelated Blender or renderer process is terminated.
+process tree with one shared deadline of at most three seconds; ordinary timer
+cleanup keeps its 250 ms budget. Cleanup failure retains ownership for retry.
+Hosts exposing the public persistent `exit_pre` handler clean up before native
+data is dismantled. Older hosts retain an `atexit` fallback. The executing handler
+list is left intact so another add-on's following exit callback is not skipped.
+No unrelated Blender or renderer process is terminated. See [validation](validation.md)
+for the exact tested host and remaining interactive acceptance gates.
