@@ -30,15 +30,18 @@ scene RPC dispatch and ownership behavior; they do not send keyboard or mouse
 input and do not establish human acceptance. A process disappearing by itself
 is insufficient evidence of clean exit.
 
-DCC-CUA 1.9.4 captured the real native Web region, bound to Blender PID 113988 and
-HWND 21050114. Blender's UI scale was 2.5; the 1569 by 1878 pixel region mapped to a
-627 by 751 logical Web surface. A previous precisely bound instance (PID 110388,
-HWND 85469118) accepted a Web click: Cube became selected, the name field filled
-and the host scene revision advanced from 0 to 1. That screenshot preceded the
-high-DPI correction.
+DCC-CUA 1.9.4 captured the final standalone demo, precisely bound to Blender
+PID 59488 and HWND 104077806. Blender's UI scale was 2.5; the 1569 by 1878 pixel
+region mapped to a 627 by 751 logical Web surface. A Web click selected Cube,
+filled the name field and advanced the host scene revision from 0 to 1. The
+before/after foreground identity remained the exact target; both pixels and
+structured scene readback verified the effect. The demo's normal stop reported
+complete cleanup; Blender and its renderer exited, with no cleanup error or
+allocator warning in the saved logs. Its recovery file remained isolated.
 
-A later input attempt lost foreground focus to the automation client. Blender
-received a deactivation event and the scene remained unchanged. Full keyboard,
+Subsequent focus attempts were refused by the exact-window foreground activation
+route, before any keyboard input. A transient UIA snapshot timeout recovered, but
+the input refusal remained and the task lease was stopped. Full keyboard,
 committed Unicode, focus, mouse, rename/transform/frame interaction and multiple
 native windows still require stable target-bound testing and user acceptance.
 IME candidate windows, clipboard and drag-and-drop are not certified. No generic
