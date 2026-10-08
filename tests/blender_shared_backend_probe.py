@@ -206,7 +206,11 @@ class Probe:
         self.check("published_toolset_version", versions["auroraview-dcc-mcp"] == "0.1.0")
         self.target = self.bpy.data.objects["Cube"]
         empty = object_schema()
-        mutation = {"type": "object", "required": ["result", "scene"]}
+        mutation = {
+            "type": "object",
+            "required": ["result", "scene"],
+            "properties": {"result": {"type": "object"}, "scene": {"type": "object"}},
+        }
         tools = [
             public.Tool(
                 "scene.snapshot",
