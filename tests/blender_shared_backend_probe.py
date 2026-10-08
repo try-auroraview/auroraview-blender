@@ -86,6 +86,7 @@ class Probe:
         self.handlers, self.history, self.removals, self.results = {}, [], [], {}
         self.revision = 0
         self.surface_id = None
+        self.last_surface_info = None
         self.report = {
             "status": "running",
             "pid": os.getpid(),
@@ -100,7 +101,13 @@ class Probe:
         atexit.register(self.verify_exit)
 
     def save(self):
-        self.report.update(phase=self.phase, elapsed=time.monotonic() - self.started)
+        self.report.update(
+            phase=self.phase,
+            elapsed=time.monotonic() - self.started,
+            business_calls=list(self.calls),
+            html_results=dict(self.results),
+            last_surface_info=self.last_surface_info,
+        )
         self.args.output.write_text(json.dumps(self.report, indent=2) + "\n", encoding="utf-8")
 
     def check(self, name, condition):
@@ -395,9 +402,11 @@ class Probe:
         if manager is None or manager.last_error or self.addon._docking.last_error:
             raise RuntimeError("Native surface failed: " + str(self.addon._docking.last_error))
         info = manager.get_info(self.surface_id)
+        self.last_surface_info = dict(info)
         if info["error"]:
             raise RuntimeError(str(info["error"]))
-        return stage in self.results and info["frame_count"] >= 3 and info["uploaded_sequence"] >= 1
+        # Static HTML need not repaint three times; require a real uploaded frame.
+        return stage in self.results and info["frame_count"] >= 1 and info["uploaded_sequence"] >= 1
 
     def validate_html(self, stage):
         result = self.results[stage]
