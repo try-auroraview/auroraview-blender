@@ -124,7 +124,7 @@ class LifecycleTests(unittest.TestCase):
                 self.assertFalse(previous.scheduler.running)
                 addon.register()
                 self.assertIsNot(addon._session, previous)
-                self.assertEqual(len(bpy.classes), 3)
+                self.assertEqual(len(bpy.classes), 7)
                 self.assertEqual(len(bpy.app.handlers.load_pre), 1)
             finally:
                 addon.unregister()

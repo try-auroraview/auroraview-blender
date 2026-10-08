@@ -45,7 +45,12 @@ def fake_bpy():
             handlers=SimpleNamespace(load_pre=[], load_post=[], persistent=lambda f: f),
         ),
         context=SimpleNamespace(selected_objects=[SimpleNamespace(name="Cube")]),
-        types=SimpleNamespace(Operator=type("Operator", (), {}), Panel=type("Panel", (), {})),
+        types=SimpleNamespace(
+            Operator=type("Operator", (), {}),
+            Panel=type("Panel", (), {}),
+            AddonPreferences=type("AddonPreferences", (), {}),
+        ),
+        props=SimpleNamespace(StringProperty=lambda **_: None),
         utils=SimpleNamespace(register_class=classes.append, unregister_class=classes.remove),
         classes=classes,
     )
@@ -275,7 +280,7 @@ class AddonTests(unittest.TestCase):
             try:
                 addon.register()
                 addon.register()
-                self.assertEqual(len(bpy.classes), 3)
+                self.assertEqual(len(bpy.classes), 7)
                 self.assertEqual(len(bpy.app.handlers.load_pre), 1)
                 self.assertEqual(len(bpy.app.handlers.load_post), 1)
                 self.assertEqual(len(bpy.app.timers.registered), 1)

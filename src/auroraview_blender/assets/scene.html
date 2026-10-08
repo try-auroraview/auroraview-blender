@@ -1,0 +1,53 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AuroraView · Blender</title><style>
+:root{color-scheme:dark;font:13px system-ui,sans-serif;color:#dee3e8;background:#202328}
+*{box-sizing:border-box}body{margin:0}header{padding:18px 20px;border-bottom:1px solid #3b4149;
+display:flex;align-items:center;gap:10px}h1{font-size:16px;margin:0;font-weight:600}
+.dot{width:8px;height:8px;background:#d38a49;border-radius:50%;animation:breathe 2s infinite}
+@keyframes breathe{50%{opacity:.35}}small{color:#939da8}main{padding:16px 20px;display:grid;gap:18px}
+section{display:grid;gap:10px}label{display:grid;gap:6px;color:#a7b1bd}
+input,button{font:inherit;border:1px solid #4b535e;border-radius:4px;padding:8px 10px;
+color:inherit;background:#2a2f36;min-width:0}input:focus{outline:2px solid #cc8e53;outline-offset:1px}
+button{cursor:pointer}button:hover{background:#3b434e}button.primary{background:#87562f;border-color:#ba7c44}
+.row{display:flex;gap:8px}.row>*{flex:1}.objects{display:grid;gap:3px;max-height:220px;overflow:auto}
+.object{text-align:left;border-color:transparent;display:flex;justify-content:space-between}
+.object.selected{border-color:#bd854e;background:#3c342e}h2{font-size:11px;letter-spacing:.12em;
+text-transform:uppercase;margin:0;color:#98a3af}pre{margin:0;white-space:pre-wrap;font:11px ui-monospace,
+monospace;line-height:1.6;color:#aeb9c5}footer{border-top:1px solid #3b4149;padding:12px 20px}
+@media(min-width:700px){main{grid-template-columns:minmax(180px,1fr) minmax(240px,1fr)}}
+</style><header><span class="dot"></span><h1>AuroraView</h1><small>Blender scene tools</small></header>
+<main><section><h2 id="scene">Connecting to Blender</h2>
+<div class="row"><input id="filter" placeholder="Filter objects" aria-label="Filter objects">
+<button id="refresh">Refresh</button></div><div id="objects" class="objects"></div>
+<small id="count"></small></section><section><h2>Object properties</h2>
+<label>Name<input id="name" placeholder="Select an object" autocomplete="off"></label>
+<button id="rename" class="primary">Rename object</button>
+<label>Local position<div class="row"><input id="x" type="number" step=".1" aria-label="X">
+<input id="y" type="number" step=".1" aria-label="Y"><input id="z" type="number" step=".1" aria-label="Z"></div></label>
+<button id="move">Apply position</button><label>Scene frame<div class="row">
+<input id="frame" type="number" value="1" aria-label="Scene frame"><button id="setframe">Set frame</button>
+</div></label><button id="contracts">Inspect agent contract</button></section></main>
+<footer><pre id="status">Waiting for AuroraView bridge…</pre></footer><script>
+const $=id=>document.getElementById(id);let scene=null,selected=null;const history=[];
+function status(message){history.unshift(message);$('status').textContent=history.slice(0,5).join('\n')}
+async function call(method,params={}){try{const result=await auroraview.call(method,params);
+status(method+' · completed');return result}catch(e){status('Error · '+e.message);throw e}}
+function pick(obj){selected=obj.name;$('name').value=obj.name;['x','y','z'].forEach((k,i)=>$(k).value=obj.location[i]);render()}
+function render(){if(!scene)return;$('scene').textContent=scene.scene+' / Frame '+scene.frame;
+$('count').textContent=scene.total_objects+' objects'+(scene.truncated?' · bounded preview':'');
+$('objects').replaceChildren();for(const obj of scene.objects){if(!obj.name.toLowerCase().includes($('filter').value.toLowerCase()))continue;
+const b=document.createElement('button');b.className='object'+(obj.name===selected?' selected':'');
+const n=document.createElement('span');n.textContent=obj.name;const t=document.createElement('small');t.textContent=obj.type;
+b.append(n,t);b.onclick=async()=>{await call('blender.selection.set',{names:[obj.name],active:obj.name});pick(obj)};
+$('objects').append(b)}}
+async function refresh(){scene=await call('blender.scene.describe',{limit:128});render()}
+$('filter').oninput=render;$('refresh').onclick=refresh;
+$('rename').onclick=async()=>{if(!selected)return;const obj=await call('blender.object.rename',{name:selected,new_name:$('name').value});
+selected=obj.name;await refresh()};$('move').onclick=async()=>{if(!selected)return;await call('blender.object.transform',
+{name:selected,location:['x','y','z'].map(k=>Number($(k).value))});await refresh()};
+$('setframe').onclick=async()=>{await call('blender.timeline.set_frame',{frame:Number($('frame').value)});await refresh()};
+$('contracts').onclick=async()=>{const c=await call('blender.capabilities');status(c.tools.map(t=>t.name).join('\n'))};
+function ready(){auroraview.on('blender.scene.changed',value=>{scene=value;render()});refresh().catch(()=>{})}
+if(window.auroraview?._ready)ready();else window.addEventListener('auroraviewready',ready,{once:true});
+</script></html>

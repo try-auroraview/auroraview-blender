@@ -1,86 +1,79 @@
 # AuroraView Blender
 
-Experimental Blender host adapter for [AuroraView Core](https://github.com/try-auroraview/auroraview). This is a development source candidate, not a native WebView-certified release.
+Experimental Blender host adapter for [AuroraView](https://github.com/try-auroraview/auroraview).
+It provides native sidebar tools and an optional interactive HTML surface inside
+an actual Blender editor area. The native Web editor is a development candidate;
+user acceptance and stable release validation remain open.
 
-The adapter owns Blender's native tool panels, main-thread queue, operator registration and host cleanup. Core owns the native WebView, JavaScript bridge, RPC envelopes and window lifecycle. No private renderer or bridge is bundled.
+Blender owns areas, GPU textures, input, registration and one main-thread timer.
+The optional auroraview-offscreen package in Core owns process transport and the
+hidden Chromium renderer. It reuses AuroraView's existing SDK bridge. There is no
+second backend server, event loop or implicit dependency installation.
 
-## Native tools
+## Native Web editor
 
-Install the Blender 4.2+ extension ZIP built by `python tools/build_extension.py`.
-View3D > Sidebar > AuroraView includes a native Selection panel with editable
-object name and transforms. Third-party add-ons can register native tools through
-`register_panel` / `unregister_panel`. This route uses Blender's own controls and
-requires no Core installation. See [installation and panel API](docs/native-panels.md).
+The current route requires Windows and Blender's Python 3.12+, tested during
+development with Blender 5.1.1 / Python 3.13.9. The ordinary native sidebar still
+works without a renderer on Blender 4.2+.
 
-## Verified scope
+Build the optional pure-Python client wheel and verified portable renderer from
+Core's packages/auroraview-offscreen. Package the wheel explicitly:
 
-- **Baseline actual Blender 4.3.2 / CPython 3.13.5 on Linux:** 21 addon-host checks passed, including worker-to-main-thread dispatch, registration, one disable/re-enable cycle and cleanup; Blender exited normally with code 0. The consumer-hook follow-up has not been rerun in Blender
-- **Source unit tests:** CI runs scheduler, lifecycle, native-panel and packaging checks with explicit host/Core doubles
-- **Native WebView, JS/Python RPC and window lifecycle:** not tested in a real host
-- **Windows floating-window route:** source candidate; native GUI acceptance pending
-- **Linux/macOS WebView route:** explicitly unavailable; the sidebar button stays disabled
-- **Native Blender tool panels:** implemented through the add-on API; HTML embedding remains unimplemented
-
-The real host probe did not import Core or construct a WebView. See [validation](docs/validation.md) for evidence and limits.
-
-## Core dependency
-
-Optional WebView tools require the merged API contract in [AuroraView Core PR #497](https://github.com/try-auroraview/auroraview/pull/497), at [source commit 0381061](https://github.com/try-auroraview/auroraview/commit/0381061602ff2a326e3f541da24ad7756dea50a4).
-
-**No released Core dependency version is declared compatible.** Its source version is based on 0.5.11; installing the released auroraview==0.5.11 wheel does not supply these changes. This dependency applies only to optional WebView tools. Native panels work without Core. See the [exact contract](docs/core-compatibility.md).
-
-The separate experimental Linux GTK Core work is not included or enabled here.
-
-## Source development
-
-Use src/ on Blender's Python path, then:
-
-```python
-import auroraview_blender
-
-auroraview_blender.register()
-# View3D > Sidebar > AuroraView
-
-auroraview_blender.unregister()
+```powershell
+python tools/build_extension.py --offscreen-wheel <auroraview_offscreen-wheel>
+python tools/verify_extension.py --offscreen-wheel <auroraview_offscreen-wheel>
 ```
 
-The default RPC reads selection metadata. There is no arbitrary code-execution RPC, external listener or implicit dependency installation. Calls and event notifications use one bounded Blender timer queue. Synchronous closing-veto callbacks are rejected by the async event contract. File-load hooks discard pending work and expire old dispatchers before restarting; module reload disposes the prior registration. Failed unregister cleanup retains ownership for retry. Native-window cleanup during these flows still needs live WebView validation.
+Install the ZIP through Blender's Extensions UI, choose the extracted renderer
+bundle in add-on preferences, then use **Open Web Editor** in View3D > Sidebar >
+AuroraView. It splits the active area and mounts the scene example there.
+**Close Web Editors** releases the owned surfaces and renderer.
 
-Third-party add-ons can own a `BlenderSession` and pass `configure(view)` to
-`open` to bind public Core commands/events before show. See the
-[consumer example and ownership rules](docs/consumer-tools.md). The hook and
-reentrant-finalizer cleanup have source-only tests; they add no native support
-claim and do not enable the separate GTK runtime.
+For a dedicated source demo with isolated Blender configuration:
 
-## Validation commands
+```powershell
+.\tools\launch_demo.ps1 -RendererBundle <extracted-bundle> -Client <client-wheel-or-python-directory>
+```
 
-```sh
-python -m pip install build==1.2.2 hatchling==1.27.0 ruff==0.16.10 tomli==2.2.1
+See [native Web editor setup and public backend integration](docs/native-web.md),
+[ownership decision](docs/adr/0001-native-web-surfaces.md), and
+[validation boundaries](docs/validation.md).
+
+## Existing backend integration
+
+`open_editor(html=..., backend=session, events=(...))` borrows an existing public
+BackendSession. Calls and events use its public contract; view cleanup releases
+its own subscriptions and requests without closing the borrowed backend. The
+default scene explorer is a small local demo, not a replacement DCC-MCP registry.
+
+Core's BackendSession.borrow(invoke_tool=..., list_tools=..., subscribe=...)
+creates no server or dispatcher. DCC-MCP Core 0.20.41 currently lacks the direct
+public tool invocation and removable subscription APIs needed for in-process
+attachment. Supply a public host adapter or existing MCP client; private server
+fields are unsupported.
+
+## Native sidebar and floating windows
+
+Third-party tools can use register_panel / unregister_panel for ordinary
+Blender-native controls without installing Core. See [panel API](docs/native-panels.md).
+The earlier optional floating WebView route remains experimental and uses the
+[pinned Core contract](docs/core-compatibility.md); it is separate from the new
+native editor surface. See [consumer tools](docs/consumer-tools.md).
+
+## Source checks
+
+```powershell
 python -m unittest discover -s tests -v
 python -m ruff check src tests tools
 python -m ruff format --check src tests tools
-python -m build --no-isolation
+python -m build
 python tools/verify_wheel.py
 python tools/build_extension.py
 python tools/verify_extension.py
 ```
 
-CI runs these source/package checks across Python 3.10–3.13. It does not launch Blender or certify native WebView support, and does not publish packages or releases.
-
-tests/blender_gui_probe.py is a separate real Linux Blender addon-host probe. Start a dedicated GUI session with --factory-startup --python <probe>, then pass --output <new-report.json> and --cleanup-marker <new-marker> after Blender's -- separator. Inspect the AuroraView sidebar when the report says awaiting_visual_check, create the marker to request cleanup, verify the report, then quit only that session normally. The probe has a 180-second observation limit and never creates a WebView.
-
-`tests/blender_native_probe.py` installs the built ZIP into a fresh local extension
-repository and verifies registration, module reload, actual file-load cancellation,
-native panel drawing and cleanup. Run it in an isolated GUI with separate
-`BLENDER_USER_CONFIG`, `BLENDER_USER_SCRIPTS` and `BLENDER_USER_EXTENSIONS` paths;
-pass `--extension`, `--output` and `--cleanup-marker` after `--`. Observe the native
-panel and optionally edit its object name (`--expected-name` enables readback),
-then create the cleanup marker. The probe exits Blender normally after verification.
-
-## Release gate
-
-Version 0.1.0.dev0 identifies development source. Native rendering/RPC, close/reopen, multiple windows, reload/file-load cleanup and helper-process termination must be tested against an available Core build before any native support claim. A stable release is not ready.
-
-## License
+CI checks Python 3.10-3.13 and source/package equality. It does not certify live
+Blender rendering. Native input, lifecycle, performance and supported hosts need
+separate application evidence. Version 0.1.0.dev0 is not a stable release.
 
 MIT; see [LICENSE](LICENSE).
