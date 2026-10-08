@@ -13,6 +13,73 @@ from auroraview_blender import BlenderSession
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_public_host_exit_hook_is_persistent_and_removed_on_disable(self):
+        bpy = fake_bpy()
+        bpy.app.handlers.exit_pre = []
+
+        def persistent(callback):
+            callback._bpy_persistent = True
+            return callback
+
+        bpy.app.handlers.persistent = persistent
+        with patch.dict(sys.modules, {"bpy": bpy}):
+            with patch("auroraview_blender.atexit.register") as register_atexit:
+                addon.register()
+            try:
+                hook = bpy.app.handlers.exit_pre[0]
+                self.assertTrue(hook._bpy_persistent)
+                self.assertIsNone(addon._exit_callback)
+                register_atexit.assert_not_called()
+                bpy.app.handlers.load_pre[0](None)
+                bpy.app.handlers.load_post[0](None)
+                self.assertEqual(bpy.app.handlers.exit_pre, [hook])
+            finally:
+                addon.unregister()
+            self.assertEqual(bpy.app.handlers.exit_pre, [])
+
+    def test_public_host_exit_releases_resources_without_skipping_other_handlers(self):
+        bpy = fake_bpy()
+        bpy.app.handlers.exit_pre = []
+        with patch.dict(sys.modules, {"bpy": bpy}):
+            addon.register()
+            session = addon._session
+            following = []
+            bpy.app.handlers.exit_pre.append(lambda _flag: following.append(addon._session))
+            # Match Blender's live list iteration rather than iterating a copy.
+            for callback in bpy.app.handlers.exit_pre:
+                callback(True)
+            self.assertEqual(following, [None])
+            self.assertFalse(session.scheduler.running)
+            self.assertEqual(bpy.classes, [])
+            self.assertFalse(addon._handlers)
+            self.assertIsNone(addon._session)
+
+    def test_public_host_exit_rejects_worker_before_changing_owned_handlers(self):
+        bpy = fake_bpy()
+        bpy.app.handlers.exit_pre = []
+        with patch.dict(sys.modules, {"bpy": bpy}):
+            addon.register()
+            hook = bpy.app.handlers.exit_pre[0]
+            errors = []
+
+            def worker():
+                try:
+                    hook(True)
+                except RuntimeError as exc:
+                    errors.append(str(exc))
+
+            try:
+                thread = threading.Thread(target=worker)
+                thread.start()
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(len(errors), 1)
+                self.assertIn("main thread", errors[0])
+                self.assertTrue(addon._session.scheduler.running)
+                self.assertIn((bpy.app.handlers.exit_pre, hook), addon._handlers)
+            finally:
+                addon.unregister()
+
     @patch("auroraview_blender.runtime.sys.platform", "win32")
     def test_restart_retries_retained_view_before_accepting_new_work(self):
         bpy = fake_bpy()

@@ -193,6 +193,8 @@ def register():
         docking.stop(force=True)  # Retry retained resources before a new generation.
         session.start()
 
+    host_exit_handlers = getattr(bpy.app.handlers, "exit_pre", None)
+
     def on_exit(*, finalizing=False):
         global _finalizing
         previous, _finalizing = _finalizing, finalizing
@@ -201,9 +203,19 @@ def register():
         except Exception:
             # Complete cleanup includes Python-defined RNA types and panels;
             # failures retain their owners through the public retry contract.
-            logger.exception("AuroraView Blender cleanup during interpreter exit failed")
+            logger.exception("AuroraView Blender cleanup during host exit failed")
         finally:
             _finalizing = previous
+
+    @bpy.app.handlers.persistent
+    def on_host_exit(_):
+        require_main_thread()
+        # Blender is iterating exit_pre now. Leave this callback to the exiting
+        # host so removing it cannot skip another add-on's following callback.
+        owned = (host_exit_handlers, on_host_exit)
+        if owned in _handlers:
+            _handlers.remove(owned)
+        on_exit()
 
     _session = session
     _docking = docking
@@ -226,6 +238,9 @@ def register():
         _handlers.append((bpy.app.handlers.load_pre, on_load_pre))
         bpy.app.handlers.load_post.append(on_load_post)
         _handlers.append((bpy.app.handlers.load_post, on_load_post))
+        if host_exit_handlers is not None:
+            host_exit_handlers.append(on_host_exit)
+            _handlers.append((host_exit_handlers, on_host_exit))
     except BaseException:
         try:
             unregister()
@@ -233,8 +248,9 @@ def register():
             logger.exception("AuroraView Blender registration rollback needs retry")
         raise
     _registered = True
-    _exit_callback = on_exit
-    atexit.register(on_exit, finalizing=True)
+    if host_exit_handlers is None:
+        _exit_callback = on_exit
+        atexit.register(on_exit, finalizing=True)
 
 
 def unregister():

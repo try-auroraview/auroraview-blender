@@ -259,6 +259,13 @@ class Probe:
         )
         self.check("independent_of_core_native_module", "auroraview" not in sys.modules)
         self.check("extension_enabled", self.addon.__name__ in bpy.context.preferences.addons)
+        self.check(
+            "public_host_exit_hook_registered",
+            hasattr(bpy.app.handlers, "exit_pre")
+            and any(
+                collection is bpy.app.handlers.exit_pre for collection, _ in self.addon._handlers
+            ),
+        )
         first = self.addon._session
         self.addon.register()
         self.check("idempotent_register", self.addon._session is first)
@@ -446,6 +453,18 @@ class Probe:
             )
             self.report["status"] = "awaiting_owned_exit_cleanup"
             self.save()
+
+            def after_extension_exit(_):
+                self.report["public_exit_pre_cleaned_before_following_handler"] = (
+                    self.addon._session is None
+                    and self.addon._docking is None
+                    and self.addon._panels is None
+                    and not self.addon._classes
+                    and not self.addon._handlers
+                    and threading.current_thread() is threading.main_thread()
+                )
+
+            bpy.app.handlers.exit_pre.append(after_extension_exit)
             # Leave active resources deliberately: the extension owns normal exit.
             bpy.ops.wm.quit_blender()
 
@@ -466,6 +485,10 @@ class Probe:
             self.report["exit_resources_cleaned"] = clean
             self.report["owned_renderer_pids"] = [client.pid for client in self.clients]
             if self.report["status"] == "awaiting_owned_exit_cleanup":
+                self.check(
+                    "public_host_exit_cleans_resources_before_following_handler",
+                    self.report.get("public_exit_pre_cleaned_before_following_handler", False),
+                )
                 self.check("normal_exit_cleans_all_owned_renderers_and_surfaces", clean)
                 self.report["status"] = "passed"
         except Exception as exc:
