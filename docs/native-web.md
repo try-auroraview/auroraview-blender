@@ -33,23 +33,43 @@ work. Linux/macOS native Web editor integration is not implemented.
 ## Public backend port
 
 ```python
-from auroraview.integration.backend import BackendSession
+import bpy
 import auroraview_blender
 
-# Public host adapter; Future scheduling belongs to its existing event loop.
-session = BackendSession.borrow(
-    invoke_tool=host.call_tool,
-    list_tools=host.list_tools,
-    subscribe=host.subscribe,  # returns a synchronous dispose callable
-)
+# tools is the host's existing auroraview_dcc_mcp.ToolSet.
+# The host retains tools until its own add-on unloads.
+session = tools.borrow()
 auroraview_blender.open_editor(
     html=my_html,
     backend=session,
     events=("scene.changed",),
 )
-# The page uses auroraview.call / auroraview.on. Closing the view does not stop
-# this session or the shared host runtime. Its caller later closes the session.
+# Later, on the same Blender main thread, close the editors before the lease.
+# If cleanup raises or does not finish, retain session and retry on the host loop.
+if bpy.ops.auroraview.close_editors() != {"FINISHED"}:
+    raise RuntimeError("Native editor cleanup needs retry")
+session.close()  # Caller-owned lease; the shared host service remains running.
 ```
+
+The optional published package is
+[`auroraview-dcc-mcp` 0.1.0 preview](https://github.com/try-auroraview/auroraview/releases/download/auroraview-dcc-mcp-v0.1.0-preview.1/auroraview_dcc_mcp-0.1.0-py3-none-any.whl),
+SHA256 `450b74fd7c11c9247f076b456197a4c5b299c9edb34f851fda5ccc5cf1bf3558`.
+The host supplies this wheel and its `jsonschema>=4,<5` dependencies; they are not
+bundled in the offscreen extension. Its public declarations are `Tool` and
+`ToolSet`. Tool calls and readback are synchronous, schema-validated JSON.
+Create tools, call them and deliver events on Blender's main thread using the
+host's existing dispatcher. Borrowing a session creates no server or event loop.
+If `session.close()` raises `CleanupError`, retry it even when `session.closed`
+is already true: that flag revokes calls before subscription cleanup completes.
+
+The page uses `auroraview.call` and `auroraview.on`. DockSession accepts the
+public `call(name, params)` and `subscribe(event, handler) -> unsubscribe` port
+directly. It also supports the existing `on(event, handler) -> Connection`
+port with `Connection.dispose()`. Each returned cleanup must complete
+synchronously: `None` succeeds, exactly `False` retains the handle for retry,
+and exceptions retain it for retry. Close invalidates old event callbacks before
+cleanup, so they cannot deliver into a reopened editor. The view releases only
+its own subscriptions and requests; the caller owns the borrowed session.
 
 One native-editor group borrows one backend. Close that group before changing
 backends. At most 32 named subscriptions and 32 pending requests are retained.
@@ -58,11 +78,14 @@ old generations are discarded. A bare coroutine is rejected and closed instead
 of starting a second event loop. MCP result/error payloads pass through unchanged;
 the page is responsible for interpreting its backend's schema.
 
-The bundled HTML uses six bounded local scene example methods. It does not
-discover, register or start a DCC-MCP server. Production integrations supply their
-existing public backend, rather than copying this demo registry. DCC-MCP Core
-0.20.41 needs a public invocation/removable-subscription extension for direct
-in-process use. No private DCC-MCP APIs are imported here.
+The bundled HTML uses six bounded local scene example methods. Production
+integrations supply their existing public backend. The published `ToolSet`
+provides explicitly declared host tools and can attach those declarations to an
+existing DCC-MCP server; it does not expose arbitrary tools already registered in
+that server. Core's optional renderer-neutral `BackendSession` remains useful
+for other public clients, request Futures and explicit runtime-stop ownership.
+It is unnecessary around a borrowed `ToolSession`. No private DCC-MCP APIs are
+imported here.
 
 ## Ownership and input
 

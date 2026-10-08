@@ -59,6 +59,7 @@ class DockSession:
         self._next_scene_poll = 0.0
         self.last_error = None
         self._backend = None
+        self._backend_generation = 0
         self._connections = []
         self._pending = []
 
@@ -72,17 +73,34 @@ class DockSession:
         names = tuple(events)
         if len(names) > 32 or any(not isinstance(name, str) or not name for name in names):
             raise ValueError("Supply at most 32 named backend events")
+        subscribe = getattr(backend, "subscribe", None)
+        use_subscribe = callable(subscribe)
+        if not use_subscribe:
+            subscribe = getattr(backend, "on", None)
+        if names and not callable(subscribe):
+            raise TypeError("backend events require public subscribe or on")
         self._backend = backend
+        self._backend_generation += 1
+        generation = self._backend_generation
         try:
             for name in names:
-                self._connections.append(
-                    backend.on(name, lambda payload, event=name: self._emit(event, payload))
+                handle = subscribe(
+                    name,
+                    lambda payload, event=name: self._emit(event, payload, generation),
                 )
+                remove = handle if use_subscribe else getattr(handle, "dispose", None)
+                if not callable(remove) or inspect.isawaitable(remove):
+                    if inspect.iscoroutine(handle):
+                        handle.close()
+                    raise TypeError("Backend subscription must return synchronous cleanup")
+                self._connections.append(remove)
         except BaseException:
             self.stop(force=True)
             raise
 
-    def _emit(self, event, payload):
+    def _emit(self, event, payload, generation):
+        if generation != self._backend_generation:
+            return
         require_main_thread()
         manager = self.manager
         if manager is not None and manager.renderer is not None:
@@ -220,11 +238,20 @@ class DockSession:
 
     def stop(self, *, force=True, timeout=0.25):
         require_main_thread()
+        self._backend_generation += 1
         errors = []
-        for connection in tuple(self._connections):
+        for remove in tuple(self._connections):
             try:
-                if connection.dispose():
-                    self._connections.remove(connection)
+                result = remove()
+                if inspect.isawaitable(result) or (
+                    callable(getattr(result, "cancel", None))
+                    and callable(getattr(result, "done", None))
+                ):
+                    if inspect.iscoroutine(result):
+                        result.close()
+                    raise TypeError("Backend subscription cleanup must complete synchronously")
+                if result is not False:
+                    self._connections.remove(remove)
             except Exception as exc:
                 errors.append(exc)
         for record in tuple(self._pending):

@@ -1,5 +1,6 @@
 """Borrow existing public backends without creating a server or scheduler."""
 
+import inspect
 import sys
 import unittest
 from concurrent.futures import Future
@@ -47,13 +48,110 @@ class DockBackendTests(unittest.TestCase):
 
     def test_owned_connection_removed_without_closing_borrowed_backend(self):
         connection = Mock(dispose=Mock(return_value=True))
-        backend = Mock(on=Mock(return_value=connection))
+        backend = Mock(spec=["call", "on", "close", "stop"], on=Mock(return_value=connection))
         self.bind(backend, ("existing.changed",))
         backend.on.call_args.args[1]({"name": "Cube"})
         self.renderer.emit.assert_called_once_with("one", 1, "existing.changed", {"name": "Cube"})
         self.session.stop()
         connection.dispose.assert_called_once()
         backend.close.assert_not_called()
+
+    def test_public_subscribe_handle_completes_with_none_and_old_events_stay_invalid(self):
+        remove = Mock(return_value=None)
+        backend = Mock(
+            spec=["call", "subscribe", "close", "stop"],
+            subscribe=Mock(return_value=remove),
+        )
+        self.bind(backend, ("scene.changed",))
+        old_callback = backend.subscribe.call_args.args[1]
+        old_callback({"revision": 1})
+        self.renderer.emit.assert_called_once_with("one", 1, "scene.changed", {"revision": 1})
+        self.session.stop()
+        remove.assert_called_once()
+        self.assertFalse(self.session._connections)
+        backend.close.assert_not_called()
+        backend.stop.assert_not_called()
+
+        self.bind(backend, ("scene.changed",))
+        self.renderer.emit.reset_mock()
+        old_callback({"revision": 2})
+        self.renderer.emit.assert_not_called()
+        backend.subscribe.call_args.args[1]({"revision": 3})
+        self.renderer.emit.assert_called_once_with("one", 1, "scene.changed", {"revision": 3})
+
+    def test_public_subscribe_preferred_over_legacy_on(self):
+        remove = Mock(return_value=None)
+        backend = Mock(spec=["call", "subscribe", "on"], subscribe=Mock(return_value=remove))
+        self.bind(backend, ("changed",))
+        self.session.stop()
+        backend.subscribe.assert_called_once()
+        backend.on.assert_not_called()
+        remove.assert_called_once()
+
+    def test_false_unsubscribe_retained_and_events_invalidated_before_retry(self):
+        remove = Mock(side_effect=[False, None])
+        backend = Mock(spec=["call", "subscribe", "close"], subscribe=Mock(return_value=remove))
+        self.bind(backend, ("changed",))
+        callback = backend.subscribe.call_args.args[1]
+        with self.assertRaisesRegex(RuntimeError, "cleanup needs retry"):
+            self.session.stop()
+        self.assertIs(self.session.manager, self.manager)
+        self.assertEqual(self.session._connections, [remove])
+        callback({"revision": 1})
+        self.renderer.emit.assert_not_called()
+        self.session.stop()
+        self.assertEqual(remove.call_count, 2)
+        self.assertIsNone(self.session.manager)
+        backend.close.assert_not_called()
+
+    def test_public_unsubscribe_exception_retained_for_retry(self):
+        remove = Mock(side_effect=[RuntimeError("busy"), None])
+        backend = Mock(spec=["call", "subscribe"], subscribe=Mock(return_value=remove))
+        self.bind(backend, ("changed",))
+        with self.assertRaisesRegex(RuntimeError, "cleanup needs retry"):
+            self.session.stop()
+        self.assertEqual(self.session._connections, [remove])
+        self.session.stop()
+        self.assertFalse(self.session._connections)
+
+    def test_awaitable_unsubscribe_closed_and_handle_retained_for_sync_retry(self):
+        async def invalid_cleanup():
+            return None
+
+        coroutine = invalid_cleanup()
+        remove = Mock(side_effect=[coroutine, None])
+        backend = Mock(spec=["call", "subscribe"], subscribe=Mock(return_value=remove))
+        self.bind(backend, ("changed",))
+        with self.assertRaisesRegex(RuntimeError, "cleanup needs retry") as caught:
+            self.session.stop()
+        self.assertIsInstance(caught.exception.__cause__, TypeError)
+        self.assertEqual(inspect.getcoroutinestate(coroutine), inspect.CORO_CLOSED)
+        self.assertEqual(self.session._connections, [remove])
+        self.session.stop()
+        self.assertIsNone(self.session.manager)
+
+    def test_awaitable_subscription_handle_closed_and_rejected(self):
+        async def invalid_subscription():
+            return lambda: None
+
+        coroutine = invalid_subscription()
+        backend = Mock(spec=["call", "subscribe"], subscribe=Mock(return_value=coroutine))
+        with self.assertRaisesRegex(TypeError, "synchronous cleanup"):
+            self.session._bind_backend(backend, ("changed",))
+        self.assertEqual(inspect.getcoroutinestate(coroutine), inspect.CORO_CLOSED)
+        self.assertIsNone(self.session._backend)
+
+    def test_future_unsubscribe_rejected_without_losing_cleanup_owner(self):
+        future = Future()
+        remove = Mock(side_effect=[future, None])
+        backend = Mock(spec=["call", "subscribe"], subscribe=Mock(return_value=remove))
+        self.bind(backend, ("changed",))
+        with self.assertRaisesRegex(RuntimeError, "cleanup needs retry"):
+            self.session.stop()
+        self.assertEqual(self.session._connections, [remove])
+        future.set_result(None)
+        self.session.stop()
+        self.assertIsNone(self.session.manager)
 
     def test_async_result_completes_on_existing_timer(self):
         future = Future()
@@ -77,12 +175,12 @@ class DockBackendTests(unittest.TestCase):
 
     def test_failed_unsubscribe_retained_for_retry(self):
         connection = Mock(dispose=Mock(side_effect=[RuntimeError("busy"), True]))
-        backend = Mock(on=Mock(return_value=connection))
+        backend = Mock(spec=["call", "on", "close"], on=Mock(return_value=connection))
         self.bind(backend, ("changed",))
         with self.assertRaisesRegex(RuntimeError, "cleanup needs retry"):
             self.session.stop()
         self.assertIs(self.session.manager, self.manager)
-        self.assertEqual(self.session._connections, [connection])
+        self.assertEqual(self.session._connections, [connection.dispose])
         self.session.stop()
         self.assertIsNone(self.session.manager)
         backend.close.assert_not_called()
@@ -144,7 +242,7 @@ class DockBackendTests(unittest.TestCase):
 
     def test_last_area_close_releases_connections_and_existing_timer_pump(self):
         connection = Mock(dispose=Mock(return_value=True))
-        backend = Mock(on=Mock(return_value=connection))
+        backend = Mock(spec=["call", "on", "close"], on=Mock(return_value=connection))
         self.bind(backend, ("changed",))
         self.manager.surfaces.clear()
         self.session.tick()
