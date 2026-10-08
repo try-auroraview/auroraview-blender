@@ -13,9 +13,17 @@ $entry = Join-Path $PSScriptRoot 'launch_demo.py'
 # This demo gets its own configuration; the user's existing Blender is untouched.
 $configDirectory = Join-Path ([IO.Path]::GetTempPath()) ('auroraview-blender-' + [Guid]::NewGuid())
 New-Item -ItemType Directory -Path $configDirectory | Out-Null
+$temporaryDirectory = Join-Path $configDirectory 'temporary'
+New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 $oldConfig = $env:BLENDER_USER_CONFIG
+$oldDemoTemp = $env:AURORAVIEW_DEMO_TEMP
+$oldProcessTemp = $env:TEMP
+$oldProcessTmp = $env:TMP
 try {
     $env:BLENDER_USER_CONFIG = $configDirectory
+    $env:AURORAVIEW_DEMO_TEMP = $temporaryDirectory
+    $env:TEMP = $temporaryDirectory
+    $env:TMP = $temporaryDirectory
     $arguments = @('--factory-startup', '--python-exit-code', '1', '--python',
                    ('"' + $entry + '"'), '--', '--renderer-bundle', ('"' + $bundleDirectory + '"'),
                    '--client', ('"' + $clientPath + '"'))
@@ -33,4 +41,7 @@ try {
     Write-Output ('Blender demo PID=' + $process.Id)
 } finally {
     $env:BLENDER_USER_CONFIG = $oldConfig
+    $env:AURORAVIEW_DEMO_TEMP = $oldDemoTemp
+    $env:TEMP = $oldProcessTemp
+    $env:TMP = $oldProcessTmp
 }

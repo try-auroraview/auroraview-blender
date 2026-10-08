@@ -168,7 +168,7 @@ class Probe:
             path = Path(os.environ.get("BLENDER_USER_" + suffix, "")).resolve(strict=True)
             self.check("isolated_user_" + suffix.lower(), path.is_relative_to(isolation))
         temporary = isolation / "temporary"
-        temporary.mkdir()
+        temporary.mkdir(exist_ok=True)
         bpy.context.preferences.filepaths.temporary_directory = str(temporary)
         self.report["temporary_directory"] = bpy.app.tempdir
         self.check(

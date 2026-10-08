@@ -27,6 +27,8 @@ os.environ["AURORAVIEW_RENDERER_BUNDLE"] = str(args.renderer_bundle.resolve(stri
 import auroraview_blender as addon  # noqa: E402
 
 bpy.context.preferences.view.show_splash = False
+if os.environ.get("AURORAVIEW_DEMO_TEMP"):
+    bpy.context.preferences.filepaths.temporary_directory = os.environ["AURORAVIEW_DEMO_TEMP"]
 addon.register()
 started = time.monotonic()
 opened = False
