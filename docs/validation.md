@@ -40,8 +40,15 @@ complete cleanup; Blender and its renderer exited, with no cleanup error or
 allocator warning in the saved logs. Its recovery file remained isolated.
 
 Subsequent focus attempts were refused by the exact-window foreground activation
-route, before any keyboard input. A transient UIA snapshot timeout recovered, but
-the input refusal remained and the task lease was stopped. Full keyboard,
+route, before any keyboard input. The final request-budget candidate was then
+tested through DCC-CUA's existing background route, bound to PID 87880 and HWND
+101787476: Cube selection, name-field focus and scene revision 0 to 1 worked
+without foreground activation. Background Ctrl+A and committed Unicode requests
+were accepted, but Blender received no keyboard events and the HTML text stayed
+unchanged. A subsequent click reported a busy input channel; the final snapshot
+and scene readback were inspected, the task lease stopped and the demo cleaned
+up normally. Transient UIA timeouts/session refreshes did not use a visual
+fallback. Full keyboard,
 committed Unicode, focus, mouse, rename/transform/frame interaction and multiple
 native windows still require stable target-bound testing and user acceptance.
 IME candidate windows, clipboard and drag-and-drop are not certified. No generic
