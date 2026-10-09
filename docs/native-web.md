@@ -52,8 +52,8 @@ session.close()  # Caller-owned lease; the shared host service remains running.
 ```
 
 The optional published package is
-[`auroraview-dcc-mcp` 0.1.0 preview](https://github.com/try-auroraview/auroraview/releases/download/auroraview-dcc-mcp-v0.1.0-preview.1/auroraview_dcc_mcp-0.1.0-py3-none-any.whl),
-SHA256 `450b74fd7c11c9247f076b456197a4c5b299c9edb34f851fda5ccc5cf1bf3558`.
+[`auroraview-dcc-mcp` 0.1.0 preview](https://github.com/try-auroraview/auroraview/releases/download/auroraview-dcc-mcp-v0.1.0-preview.2/auroraview_dcc_mcp-0.1.0-py3-none-any.whl),
+SHA256 `3965ce8cb67889b12dbf28efaf0fd2d93a26032e047d2b1fb7d5ba401eb72cd7`.
 The host supplies this wheel and its `jsonschema>=4,<5` dependencies; they are not
 bundled in the offscreen extension. Its public declarations are `Tool` and
 `ToolSet`. Tool calls and readback are synchronous, schema-validated JSON.
