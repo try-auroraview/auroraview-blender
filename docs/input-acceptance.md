@@ -32,9 +32,10 @@ do not switch providers or create another host to bypass it.
 
 ## Input and readback
 
-1. Read the exact target's foreground relationship and scene state. Click the
-   Web demo's Cube selection/name field. Verify the HTML effect and scene revision
-   through structured readback, alongside the surface ID and generation.
+1. Read the exact target's foreground relationship and scene state. Click Cube in
+   the Web demo's object list. Verify the selection, HTML effect and scene revision
+   through structured readback, alongside the surface ID and generation. Then
+   click the Name input field; focusing the field alone does not select an object.
 2. Send Ctrl+A, then the nonsecret committed string `Aurora测试Cube`. Read Blender's
    input counter and bounded `last_input` summary, renderer error state, and HTML
    field value. Raw Unicode/text must not be added to event diagnostics. A consumed
@@ -42,9 +43,11 @@ do not switch providers or create another host to bypass it.
 3. Apply the rename and verify the object's exact name and scene revision. Exercise
    the demo's position and frame controls and read their resulting scene values.
    Recheck the target relationship before each input sequence.
-4. Leave the field/window and verify focus/key/button release. After focus loss,
-   unfocused keys must pass through. Native borders, header and sidebar retain
-   their normal Blender behavior.
+4. Click a native region outside the Web surface and verify focus/key/button
+   release. Reacquire surface focus, then deactivate the Blender window and verify
+   release again. Moving the pointer or leaving the HTML text field alone does not
+   release surface focus. After focus loss, unfocused keys must pass through.
+   Native borders, header and sidebar retain their normal Blender behavior.
 
 Record each boundary separately: OS target, Blender event receipt, translation/
 renderer delivery, HTML effect, scene mutation. If the chain stops, report the
