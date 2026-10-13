@@ -467,6 +467,68 @@ class NativeSurfaceTests(unittest.TestCase):
         self.assertFalse(self.manager.handle_event(window, event("WINDOW_DEACTIVATE")))
         self.assertFalse(self.manager.surfaces[second].input_state.focused)
 
+    def test_modal_shortcut_and_unicode_reach_exact_renderer_without_text_diagnostics(self):
+        surface_id = self.open()
+        surface = self.manager.surfaces[surface_id]
+        operator = operator_classes(lambda: self.manager, bpy=self.host.bpy)[0]()
+        operator.invoke(self.host.context, event())
+        for item in (event(), event(value="RELEASE")):
+            self.assertEqual(operator.modal(self.host.context, item), {"RUNNING_MODAL"})
+        self.renderer.input.reset_mock()
+        for item in (
+            event("A", ctrl=True, unicode="a"),
+            event("A", value="RELEASE", ctrl=True),
+            event("TEXTINPUT", unicode="Aurora测试Cube"),
+        ):
+            self.assertEqual(operator.modal(self.host.context, item), {"RUNNING_MODAL"})
+        calls = self.renderer.input.call_args_list
+        self.assertTrue(all(call.args[:2] == (surface_id, surface.generation) for call in calls))
+        messages = [call.args[2] for call in calls]
+        self.assertEqual([item["type"] for item in messages], ["keyDown", "keyUp", "text"])
+        self.assertTrue(all(item["code"] == "KeyA" for item in messages[:2]))
+        self.assertTrue(all(item["modifiers"] == 2 for item in messages[:2]))
+        self.assertEqual(messages[-1], {"type": "text", "text": "Aurora测试Cube"})
+        self.assertEqual(surface.input_events, 5)
+        self.assertEqual(set(surface.last_input), {"type", "value", "inside", "x", "y", "handled"})
+        self.assertNotIn("Aurora测试Cube", str(self.manager.get_info(surface_id)))
+
+    def test_modal_wrong_window_and_unfocused_keys_pass_then_deactivate_releases(self):
+        surface_id = self.open()
+        surface = self.manager.surfaces[surface_id]
+        operator = operator_classes(lambda: self.manager, bpy=self.host.bpy)[0]()
+        operator.invoke(self.host.context, event())
+        other_context = SimpleNamespace(window=Pointer())
+        self.assertEqual(operator.modal(other_context, event()), {"PASS_THROUGH"})
+        self.assertEqual(surface.input_events, 0)
+        self.assertEqual(operator.modal(self.host.context, event("A")), {"PASS_THROUGH"})
+        self.renderer.input.assert_not_called()
+        operator.modal(self.host.context, event())
+        operator.modal(self.host.context, event("A", unicode="a"))
+        self.renderer.input.reset_mock()
+        self.assertEqual(
+            operator.modal(self.host.context, event("WINDOW_DEACTIVATE")), {"PASS_THROUGH"}
+        )
+        messages = [call.args[2] for call in self.renderer.input.call_args_list]
+        self.assertEqual([item["type"] for item in messages], ["keyUp", "mouseUp", "focus"])
+        self.assertEqual(messages[-1], {"type": "focus", "focused": False})
+        self.assertFalse(surface.input_state.focused)
+        self.assertFalse(surface.input_state.keys)
+        self.assertFalse(surface.input_state.buttons)
+        self.renderer.input.reset_mock()
+        self.assertEqual(operator.modal(self.host.context, event("A")), {"PASS_THROUGH"})
+        self.renderer.input.assert_not_called()
+
+    def test_modal_consumption_does_not_hide_renderer_delivery_failure(self):
+        surface_id = self.open()
+        operator = operator_classes(lambda: self.manager, bpy=self.host.bpy)[0]()
+        operator.invoke(self.host.context, event())
+        operator.modal(self.host.context, event())
+        self.renderer.input.side_effect = RuntimeError("input transport failed")
+        self.assertEqual(operator.modal(self.host.context, event("A")), {"RUNNING_MODAL"})
+        self.assertEqual(self.manager.last_error, "input transport failed")
+        self.assertEqual(self.manager.get_info(surface_id)["error"], "input transport failed")
+        self.assertTrue(self.manager.surfaces[surface_id].last_input["handled"])
+
     def test_dead_process_unmounts_all_surfaces_and_modal_ownership(self):
         self.open()
         self.second_area()
