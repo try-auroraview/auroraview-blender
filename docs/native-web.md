@@ -87,6 +87,16 @@ for other public clients, request Futures and explicit runtime-stop ownership.
 It is unnecessary around a borrowed `ToolSession`. No private DCC-MCP APIs are
 imported here.
 
+The local scene example reports the object's active `rotation_mode`. Its
+`rotation` values are Euler radians in that mode's order for Euler objects, or
+XYZ Euler radians for quaternion and axis-angle objects. Rotation edits convert
+to the active representation and preserve the object's mode. Readback uses that
+same representation, rather than an inactive `rotation_euler` property.
+Selection edits require Object Mode and visible, selectable objects in the
+active view layer. Hidden/locked targets are rejected; a silent host refusal
+(including collection selection locks) restores the prior selection and active
+object and reports an error. Rejected requests do not advance the scene revision.
+
 ## Ownership and input
 
 All `bpy`, GPU and input processing runs on Blender's main thread through the

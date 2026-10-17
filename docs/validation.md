@@ -60,6 +60,26 @@ transport unit tests do not certify Linux/macOS Blender Web integration.
 
 ## Shared renderer and backend checks
 
+### Scene adapter regression probe
+
+`tests/blender_scene_probe.py` exercises the local scene adapter in a disposable
+background Blender process. It resets the scene, writes a temporary `.blend`
+file, reopens it and removes its own temporary files. Use factory startup and
+isolated `BLENDER_USER_CONFIG`, `BLENDER_USER_SCRIPTS` and
+`BLENDER_USER_EXTENSIONS` directories; never run it in an existing user session:
+
+```sh
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_scene_probe.py
+```
+
+On 2026-10-17, Linux Blender 4.3.2 / Python 3.13.5 passed all ten cases: effective
+rotation and readback for six Euler orders plus quaternion and axis-angle modes;
+invalid-transform atomicity; hidden, object-locked, collection-locked and excluded
+selection; Edit Mode refusal; duplicate/empty selection; and save/reopen rotation
+readback. The previous code reproduced false-success rotation and selection
+results in this same actual host. These are direct scene API tests, not Web
+rendering, modal keyboard delivery, visual QA or cross-platform acceptance.
+
 The renderer is the optional dependency-free `auroraview-offscreen` package. Its
 portable Electron runtime is acquired separately with publisher digest and size
 verification, a complete inventory and original licensing notices. Blender does
