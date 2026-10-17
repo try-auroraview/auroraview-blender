@@ -37,7 +37,7 @@ TOOL_SPECS = (
     ),
     _spec(
         "blender.selection.set",
-        "Select named scene objects on the Blender main thread",
+        "Select visible, selectable view-layer objects in Object Mode",
         {
             "names": {"type": "array", "maxItems": 256, "items": _NAME},
             "active": _NAME,
@@ -55,7 +55,7 @@ TOOL_SPECS = (
     ),
     _spec(
         "blender.object.transform",
-        "Set finite local transforms (Euler rotation in radians)",
+        "Set finite local transforms (Euler radians; XYZ for quaternion/axis-angle objects)",
         {
             "name": _NAME,
             "location": _VECTOR,
@@ -91,6 +91,30 @@ def _vector(value):
     ):
         raise ValueError("Transform values must be finite numbers within +/- 1000000")
     return tuple(float(item) for item in value)
+
+
+def _rotation(obj):
+    """Read the active rotation representation, never an inactive Euler property."""
+    if obj.rotation_mode == "QUATERNION":
+        return list(obj.rotation_quaternion.to_euler("XYZ"))
+    if obj.rotation_mode == "AXIS_ANGLE":
+        from mathutils import Quaternion
+
+        angle, *axis = obj.rotation_axis_angle
+        return list(Quaternion(axis, angle).to_euler("XYZ"))
+    return list(obj.rotation_euler)
+
+
+def _rotation_update(obj, value):
+    if obj.rotation_mode in {"QUATERNION", "AXIS_ANGLE"}:
+        from mathutils import Euler
+
+        quaternion = Euler(value, "XYZ").to_quaternion()
+        if obj.rotation_mode == "QUATERNION":
+            return "rotation_quaternion", quaternion
+        axis, angle = quaternion.to_axis_angle()
+        return "rotation_axis_angle", (angle, *axis)
+    return "rotation_euler", value
 
 
 class BlenderSceneAdapter:
@@ -142,7 +166,8 @@ class BlenderSceneAdapter:
             "type": obj.type,
             "selected": bool(obj.select_get()),
             "location": list(obj.location),
-            "rotation": list(obj.rotation_euler),
+            "rotation": _rotation(obj),
+            "rotation_mode": obj.rotation_mode,
             "scale": list(obj.scale),
         }
 
@@ -199,16 +224,38 @@ class BlenderSceneAdapter:
             active = self._object(params["active"]) if "active" in params else None
             if active is not None and active.name not in names:
                 raise ValueError("Active object must belong to the requested selection")
-            view_objects = self.bpy.context.view_layer.objects
+            if self.bpy.context.mode != "OBJECT":
+                raise ValueError("Selection changes require Object Mode")
+            view_layer = self.bpy.context.view_layer
+            view_objects = view_layer.objects
             if any(view_objects.get(obj.name) is None for obj in objects):
                 raise ValueError("Selected objects must belong to the active view layer")
-            for obj in self.bpy.context.selected_objects:
-                obj.select_set(False)
-            for obj in objects:
-                obj.select_set(True)
-            view_objects.active = active or (objects[0] if objects else None)
+            if any(
+                obj.hide_select or not obj.visible_get(view_layer=view_layer) for obj in objects
+            ):
+                raise ValueError("Selected objects must be visible and selectable")
+            objects = list({obj.name: obj for obj in objects}.values())
+            previous = [obj for obj in view_objects if obj.select_get()]
+            previous_active = view_objects.active
+            try:
+                for obj in previous:
+                    obj.select_set(False)
+                for obj in objects:
+                    obj.select_set(True)
+                view_objects.active = active or (objects[0] if objects else None)
+                selected = [obj.name for obj in self.bpy.context.selected_objects]
+                if set(selected) != {obj.name for obj in objects}:
+                    # Collection-level selection locks can silently ignore select_set.
+                    raise ValueError("Blender could not select all requested objects")
+            except Exception:
+                for obj in view_objects:
+                    obj.select_set(False)
+                for obj in previous:
+                    obj.select_set(True)
+                view_objects.active = previous_active
+                raise
             result = {
-                "selected": [obj.name for obj in objects],
+                "selected": selected,
                 "active": view_objects.active.name if view_objects.active else None,
             }
         elif name == "blender.object.rename":
@@ -224,8 +271,13 @@ class BlenderSceneAdapter:
             updates = {key: _vector(value) for key, value in params.items() if key != "name"}
             if not updates:
                 raise ValueError("Supply at least one transform")
-            for key, value in updates.items():
-                setattr(obj, "rotation_euler" if key == "rotation" else key, value)
+            # Convert every requested value before mutating any host property.
+            prepared = [
+                _rotation_update(obj, value) if key == "rotation" else (key, value)
+                for key, value in updates.items()
+            ]
+            for key, value in prepared:
+                setattr(obj, key, value)
             result = self._describe_object(obj)
         elif name == "blender.timeline.set_frame":
             frame = params["frame"]
