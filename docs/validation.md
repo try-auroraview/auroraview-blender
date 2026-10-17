@@ -4,6 +4,8 @@ Evidence is scoped to the tested candidate, host and operation. Source CI, nativ
 rendering, input delivery and user acceptance are separate gates. The native Web
 route is experimental; it is not a released or user-accepted integration.
 
+The next target-bound run follows the [one-window input acceptance procedure](input-acceptance.md).
+
 ## Native Web editor candidate
 
 On 2026-10-09, an isolated Windows x64 Blender 5.1.1 GUI with Python 3.13.9
